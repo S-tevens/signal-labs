@@ -38,7 +38,8 @@ def test_pseudonym_is_stable_and_opaque():
 def test_secret_in_log_never_reaches_outbox_but_stays_local():
     pipeline, store = make()
     line = "Nov 20 09:15:01 web-1 sshd[88]: Failed password for alice@corp.com from 10.2.4.7 password=Hunter2!"
-    assert pipeline.process(line)["status"] == "queued"
+    assert pipeline.process(line)["status"] == "aggregated"
+    pipeline.flush(force=True)
 
     egress = json.dumps(store.recent_egress())
     for secret in SECRETS:

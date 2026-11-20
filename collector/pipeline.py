@@ -1,97 +1,125 @@
-"""parse -> store raw (local) -> redact -> map to allow-list -> validate -> outbox.
+"""parse -> keep raw (local) -> redact -> aggregate per window -> analyse locally -> policy -> validate -> outbox.
 
-Aggregation windows and local analysis (e.g. failed-login bursts) are the next step;
-today each record becomes one payload with window_s=1.
+Records are buffered per source and window (aggregate.py) and only become payloads when a window closes,
+so 40 failed-login lines become one `auth_failure_burst` event with count=40.
 """
 from __future__ import annotations
 
-import re
+import time
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
+from .aggregate import Aggregator, Window
 from .config import COLLECTOR_VERSION, Config
+from .local_analysis import SUMMARY, classify_auth, is_auth_failure
 from .outbox import LocalStore
 from .parsers import parse_line
+from .policy import Policy
 from .redact import pseudonym, redact
 from .schema import METRIC_NAMES, METRIC_UNITS, Payload
 
-AUTH_FAIL = re.compile(r"(?i)(failed password|authentication failure|invalid (user|password)|login failed)")
 
-
-def _event_time(record: dict) -> datetime:
+def _event_epoch(record: dict) -> float:
     raw = record.get("ts")
     if raw:
         try:
             dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
+            return dt.timestamp()
         except ValueError:
             pass
-    return datetime.now(timezone.utc)
+    return time.time()
 
 
 class Pipeline:
-    def __init__(self, cfg: Config, store: LocalStore):
+    def __init__(self, cfg: Config, store: LocalStore, policy: Policy | None = None):
         self.cfg = cfg
         self.store = store
+        self.policy = policy or Policy.load(cfg.policy_file)
+        self.agg = Aggregator(cfg.window_s, cfg.grace_s)
+        self.counters: Counter[str] = Counter()
 
+    # ---- intake ----
     def process(self, line: str) -> dict:
         line = line.strip()
         if not line:
             return {"status": "empty"}
+        self.counters["received"] += 1
 
         record = parse_line(line)
-        _, rules = redact(line)  # which rules fire on the raw line; the raw line itself stays local
+        fmt = record.get("format")
+        self.counters[f"format:{fmt}"] += 1
+        _, rules = redact(line, self.policy.redaction_rules)  # which rules fire; the raw line itself stays local
         raw_id = self.store.add_raw(line, rules)
 
-        payload = self._to_payload(record)
-        if payload is None:
-            return {"status": "dropped", "raw_id": raw_id, "format": record.get("format")}
-        self.store.enqueue(payload, raw_id, rules)
-        return {"status": "queued", "raw_id": raw_id, "payload_id": payload["payload_id"], "format": record.get("format")}
-
-    def _to_payload(self, record: dict) -> dict | None:
+        source = pseudonym(str(record.get("host") or "unknown"), self.cfg.pseudo_secret)
+        ts = _event_epoch(record)
+        tz = record.get("tz") or "UTC"
         kind = record.get("kind")
-        base = {
-            "payload_id": str(uuid.uuid4()),
-            "tenant_ref": self.cfg.tenant_ref,
-            "collector_id": self.cfg.collector_id,
-            "source_id": pseudonym(str(record.get("host") or "unknown"), self.cfg.pseudo_secret),
-            "region": self.cfg.region,
-            "event_ts_utc": _event_time(record),
-            "source_tz": record.get("tz") or "UTC",
-            "window_s": 1,
-            "health_state": "Good",
-            "collector_version": COLLECTOR_VERSION,
-        }
 
         if kind == "metric":
             name = record.get("name")
             try:
                 value = float(record.get("value"))
             except (TypeError, ValueError):
-                return None
-            if name not in METRIC_NAMES:
-                return None  # not on the allow-list: dropped, never sent
-            base["metric"] = {"name": name, "value": value, "unit": METRIC_UNITS[name]}
+                value = None
+            if name not in METRIC_NAMES or value is None or value != value:  # unknown name, bad number or NaN
+                self.counters["dropped"] += 1
+                return {"status": "dropped", "raw_id": raw_id, "format": fmt}
+            ready = self.agg.add_metric(source, name, value, ts, tz, raw_id, rules)
         elif kind == "log":
-            message = str(record.get("message") or "")
-            is_auth = bool(AUTH_FAIL.search(message))
-            category = "auth_failure" if is_auth else "log_event"
-            # Summary is a template. Raw message text has no path into the payload.
-            base["event"] = {
-                "category": category,
-                "severity": "warning" if is_auth else "info",
-                "count": 1,
-                "summary": category.replace("_", " ") + " observed",
-            }
+            ready = self.agg.add_log(source, is_auth_failure(str(record.get("message") or "")), ts, tz, raw_id, rules)
         else:
-            return None  # heartbeats etc. are handled elsewhere
+            self.counters["dropped"] += 1
+            return {"status": "dropped", "raw_id": raw_id, "format": fmt}
+
+        for window in ready:  # only late arrivals come back immediately
+            self._emit(window)
+        return {"status": "aggregated", "raw_id": raw_id, "format": fmt}
+
+    # ---- output ----
+    def flush(self, force: bool = False) -> int:
+        """Send every window that has closed (all of them if force). Returns the number of payloads queued."""
+        queued = 0
+        for window in self.agg.flush(time.time(), force=force):
+            queued += self._emit(window)
+        return queued
+
+    def _emit(self, w: Window) -> int:
+        self.counters["windows"] += 1
+        body = {
+            "payload_id": str(uuid.uuid4()),
+            "tenant_ref": self.cfg.tenant_ref,
+            "collector_id": self.cfg.collector_id,
+            "source_id": w.source,
+            "region": self.cfg.region,
+            "event_ts_utc": datetime.fromtimestamp(w.last_ts, timezone.utc),
+            "source_tz": w.tz,
+            "window_s": 1 if w.late else self.cfg.window_s,
+            "health_state": "Good",
+            "collector_version": COLLECTOR_VERSION,
+        }
+        if w.kind == "metric":
+            body["metric"] = {"name": w.name, "value": w.value, "unit": METRIC_UNITS[w.name]}
+        elif w.kind == "auth":
+            category, severity = classify_auth(w.n, self.cfg.burst_threshold)
+            body["event"] = {"category": category, "severity": severity, "count": w.n, "summary": SUMMARY[category]}
+        else:
+            body["event"] = {"category": "log_event", "severity": "info", "count": w.n, "summary": SUMMARY["log_event"]}
 
         try:
-            return Payload(**base).model_dump(mode="json", exclude_none=True)
+            checked = Payload(**body).model_dump(mode="json", exclude_none=True)
         except ValidationError:
-            return None
+            self.counters["invalid"] += 1
+            return 0
+        decision = self.policy.apply(checked)  # second gate: this customer's allow-list
+        if decision.blocked:
+            self.counters["blocked_by_policy"] += 1
+            return 0
+        self.store.enqueue(decision.payload, w.raw_ids, sorted(w.rules))
+        self.counters["payloads"] += 1
+        return 1

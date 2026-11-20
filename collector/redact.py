@@ -21,10 +21,15 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
-def redact(text: str) -> tuple[str, list[str]]:
-    """Return (scrubbed_text, names_of_rules_that_fired)."""
+RULE_NAMES = frozenset(name for name, _ in PATTERNS)
+
+
+def redact(text: str, rules: "list[str] | None" = None) -> tuple[str, list[str]]:
+    """Return (scrubbed_text, names_of_rules_that_fired). `rules` limits which rules run (default: all)."""
     fired: list[str] = []
     for name, pattern in PATTERNS:
+        if rules is not None and name not in rules:
+            continue
         text, n = pattern.subn(f"[REDACTED:{name}]", text)
         if n:
             fired.append(name)

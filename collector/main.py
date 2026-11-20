@@ -17,13 +17,22 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
     pipeline = Pipeline(cfg, store)
     sender = Sender(cfg, store)
 
+    async def flusher() -> None:
+        # Close finished windows on a timer, so a quiet source still reports.
+        while True:
+            pipeline.flush()
+            await asyncio.sleep(cfg.flush_interval_s)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        task = asyncio.create_task(sender.run()) if run_sender else None
+        tasks = [asyncio.create_task(flusher())]
+        if run_sender:
+            tasks.append(asyncio.create_task(sender.run()))
         try:
             yield
         finally:
-            if task:
+            pipeline.flush(force=True)  # do not lose the open windows on shutdown
+            for task in tasks:
                 task.cancel()
 
     app = FastAPI(title="Signal Labs collector", version=COLLECTOR_VERSION, lifespan=lifespan)
@@ -41,6 +50,15 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
         for r in results:
             summary[r["status"]] = summary.get(r["status"], 0) + 1
         return {"received": len(results), "summary": summary}
+
+    @app.get("/local/policy")
+    def local_policy():
+        """Every egress field and its marking, plus what never leaves: the data policy in force."""
+        return pipeline.policy.describe()
+
+    @app.get("/local/pipeline")
+    def local_pipeline():
+        return {"counters": dict(pipeline.counters), "open_windows": pipeline.agg.open_windows(), "window_s": cfg.window_s}
 
     @app.get("/local/raw")
     def local_raw(limit: int = 50):
