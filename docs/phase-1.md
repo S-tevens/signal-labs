@@ -26,6 +26,7 @@ Names: replace **Member A / B / C** with real names in the table below.
 | `dashboard/**` | C | React app |
 | `simulator/**` | C | stream generator and scenario injectors |
 | `scripts/**` | C | demo scripts |
+| `deploy/**` | C | load balancer config, install and enrollment scripts, CI workflow (A and B tell C what their services need) |
 | `docker-compose.yml`, `.env.example` | C | A and B send their service settings to C, or add a `compose.<name>.yml` fragment in their own folder |
 | `docs/p1/story-and-plan.md` | C | |
 | `docs/phase-1.md` (this file), `README.md`, `starter.md` | C | others suggest edits in chat |
@@ -61,8 +62,10 @@ Fields: `payload_id, tenant_ref, collector_id, source_id, region, event_ts_utc, 
 |---|---|---|
 | Collector (tenant 1) | 8101 | A |
 | Collector (tenant 2) | 8102 | A |
-| SaaS region `in` | 8000 | B |
-| SaaS region `eu` | 8001 | B |
+| SaaS replica 1 | 8000 | B |
+| SaaS replica 2 | 8001 | B |
+| Load balancer (the one SaaS URL collectors use) | 8080 | C |
+| Postgres | 5432 | C (compose), B (schema) |
 | Dashboard dev server | 5173 | C |
 
 ### 3.3 SaaS API (B implements, A and C consume) — `contracts/api.md`
@@ -90,7 +93,9 @@ Auth on collector calls: `X-Collector-Key` header plus `X-Signature` (HMAC of th
 | `GET /local/buffer` | outbox depth, last send, retry state |
 | `POST /local/saas-link/{up|down}` | demo switch to simulate a SaaS outage |
 
-### 3.5 Simulator input (C produces, A consumes)
+### 3.5 Input formats (C produces, A consumes)
+The organizer said traffic can be **any format**, so the collector must not assume one. A auto-detects and parses JSON, syslog, plain text, CSV, key=value, SNMP and flow data into one internal model (`collector/parsers/`, one file per format, so adding a format never touches another file). C's simulator emits several of these formats so the parsers get exercised. The JSON-lines shape below is only the default example.
+
 JSON lines, one object per line, over `POST /ingest/jsonl` on the collector. Shape (until the organizer format is published):
 `{"ts": "<ISO-8601 UTC>", "tz": "Asia/Kolkata", "host": "...", "kind": "metric|log|heartbeat", ...}`.
 When the organizer stream format is known, **A** writes a new adapter in `collector/adapters/`; C's simulator is not changed.
@@ -133,7 +138,9 @@ Starting material for all of it is already in [phase1.md](phase1.md); copy the r
 **Contract (hour 0–1):** draft `contracts/payload.schema.json` and the collector parts of `contracts/api.md`; hand to B for approval.
 
 **Scaffold (hours 1–2), only inside `collector/`:**
-- `collector/main.py` (FastAPI app), `requirements.txt`, `Dockerfile`
+- `collector/main.py` (FastAPI app), `requirements.txt`, `Dockerfile` (the collector must run as a packaged image)
+- `collector/parsers/` with a small plugin interface (`detect(raw) -> bool`, `parse(raw) -> Record`) and the first two parsers (JSON, syslog)
+- `collector/enroll.py`: first start exchanges a one-time enrollment token for the collector key and config
 - `collector/schema.py` (Pydantic model generated from or matching the contract, `extra="forbid"`)
 - `collector/redact.py` stub with the first patterns (password=, token=, Bearer, AWS key, JWT, email)
 - `collector/outbox.py` stub (SQLite table: `payload_id`, `body`, `status`)
@@ -148,10 +155,10 @@ Starting material for all of it is already in [phase1.md](phase1.md); copy the r
 **Contract (hour 0–1):** review and approve A's contract; write the SaaS response shapes in `contracts/api.md` through A.
 
 **Scaffold (hours 1–2), only inside `saas/`:**
-- `saas/main.py` (FastAPI app, `REGION` env var), `requirements.txt`, `Dockerfile`
+- `saas/main.py` (stateless FastAPI app: all state lives in Postgres, `REPLICA_ID` env var), `requirements.txt`, `Dockerfile`
 - `saas/auth.py` (key to tenant lookup from a static seed file)
-- `saas/ingest.py` with dedup on `payload_id` (returns `accepted` and `duplicate`)
-- `saas/store.py` (tenant-scoped SQLite, one file per tenant under `data/<region>/`)
+- `saas/ingest.py` with dedup on `payload_id` (unique constraint in Postgres so any replica rejects duplicates; returns `accepted` and `duplicate`)
+- `saas/store.py` (Postgres, `tenant_id` on every table, row-level security so a query can only see its own tenant)
 - `saas/config/thresholds.yaml` (four health states)
 - `saas/tests/` for dedup, tenant isolation and out-of-order placement
 
@@ -163,7 +170,7 @@ Starting material for all of it is already in [phase1.md](phase1.md); copy the r
 
 **Scaffold (hours 0–2), in this order:**
 1. Root `.gitignore` and `.env.example` (first commit, so nobody else needs to touch them)
-2. `docker-compose.yml` with placeholder services for collector, saas-in, saas-eu, dashboard (A and B supply their `Dockerfile` names and ports from §3.2)
+2. `docker-compose.yml` with placeholder services for collector, saas-1, saas-2, postgres, load balancer, dashboard (A and B supply their `Dockerfile` names and ports from §3.2)
 3. `simulator/` generator producing the JSON-lines shape in §3.5: metrics, auth logs (some with secrets), heartbeats, plus a `scenarios/` folder with one script per live scenario
 4. `dashboard/` Vite + React skeleton with routes for Fleet, Incidents, Proof, Egress; data from mock JSON that matches `contracts/api.md`, so it works before B finishes
 
@@ -207,3 +214,20 @@ After hour 2, continue with the timeline in [starter.md](../starter.md): merge t
 - [ ] Contract merged and frozen
 - [ ] Scaffold merged; `docker compose up` starts without errors
 - [ ] Every member can explain the whole flow in 60 seconds, not only their own part
+
+---
+
+## 9. Organizer clarifications (what changed in the split)
+
+> "SaaS can be uniform, central and high availability. Traffic format can be anything, to have accurate data and optimization. Build a secure, automated, packaged system which will want to observe everything."
+
+| Note | Owner | Work |
+|---|---|---|
+| High-availability central SaaS | B (app), C (compose, load balancer) | 2 stateless replicas, shared Postgres, DB-enforced dedup, "kill one replica" demo script |
+| Any traffic format | A (parsers), C (multi-format simulator) | parser plugins plus format auto-detect; batching and gzip to optimize what is sent |
+| Secure | A, B | TLS, API key, HMAC, allow-list, scrubbing (unchanged) |
+| Automated | A (enroll), C (CI, one-command start) | one-time enrollment token; CI builds and tests on every push |
+| Packaged | A, B, C | Docker image per service, one `docker compose up`, one-line collector install script |
+| Observe everything | A | one parser plugin per source type: infrastructure, network, applications, security |
+
+The guide's regional ingest and residency requirements stay in the design write-up (B's `saas-and-aiops.md`), but the live demo uses the single central SaaS.

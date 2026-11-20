@@ -15,9 +15,9 @@ A **two-tier** observability platform:
 | Tier | Runs where | Responsibility |
 |---|---|---|
 | **Tier 1 — Local Collector** | Customer environment | Collect → filter/redact → aggregate → analyze locally → apply data policy → send. Raw logs, payloads and secrets **never leave**. |
-| **Tier 2 — SaaS Platform** | Central, multi-tenant, regional | Metadata-only ingest → fleet analytics → AIOps correlation → dashboards, alerts, recommendations. |
+| **Tier 2 — SaaS Platform** | Central, uniform, highly available, multi-tenant | Metadata-only ingest → fleet analytics → AIOps correlation → dashboards, alerts, recommendations. |
 
-The link is authenticated and encrypted (TLS + API key + HMAC), sent to a **regional ingest endpoint**.
+The link is authenticated and encrypted (TLS + API key + HMAC), sent to one central, load-balanced ingest endpoint (regional endpoints stay a documented design option).
 
 ### Mandatory (every team — missing any is a serious loss)
 1. **Real-time targets measured from timestamps**
@@ -40,6 +40,21 @@ Bonus (tie-breakers only): privacy pipeline · local buffering · explainable AI
 
 ---
 
+### Organizer clarifications (these override earlier assumptions)
+
+> "SaaS can be uniform, central and high availability. Traffic format can be anything, to have accurate data and optimization. Build a secure, automated, packaged system which will want to observe everything."
+
+| Organizer note | What we do |
+|---|---|
+| **Uniform, central, highly available SaaS** | One central SaaS: 2+ stateless replicas behind a load balancer, shared Postgres, idempotency enforced by a database unique constraint on `payload_id`. Demo: kill one replica; collectors keep delivering with zero loss and zero duplicates. Regional ingest and residency stay in the design answer (the guide still asks for them) but are not the live demo. |
+| **Traffic format can be anything** | The collector auto-detects and parses JSON, syslog, plain text, CSV, key=value, SNMP and flow data, then normalizes everything to one internal model before redaction. Batching and gzip compression optimize what is sent. |
+| **Secure** | TLS, per-collector API key, HMAC-signed payloads, allow-list schema, scrubbing. |
+| **Automated** | One-time enrollment token: a new collector registers itself, receives its key and config, and starts reporting with no manual setup. CI builds and tests on every push. |
+| **Packaged** | Docker images for collector and SaaS, one `docker compose up` for the whole stack, and a one-line collector install script. |
+| **Observe everything** | Wide coverage through one parser plugin per source type: infrastructure, network, applications, security. |
+
+---
+
 ## 2. Phase 1 talking points (have ready)
 
 - **Q1 — Before observability:** raw logs and credentials shipped to a central tool (exposure + compliance risk), noisy duplicate static-threshold alerts, no consolidated multi-site view, outages discovered by users.
@@ -54,7 +69,7 @@ Bonus (tie-breakers only): privacy pipeline · local buffering · explainable AI
 
 ```
 [Organizer stream / our simulator]
-      │ adapters: HTTP JSONL · syslog UDP · file tail
+      │ any format: JSON · syslog · text · CSV · key=value · SNMP · flow (auto-detect → parse → normalize)
 ┌─────────── TIER 1: COLLECTOR ───────────────────────────────────────────┐
 │ ingest → raw store (SQLite, TTL retention, LOCAL ONLY)                  │
 │ → redact (regex secret scrubber + HMAC pseudonymous IDs)                │
@@ -78,8 +93,9 @@ Bonus (tie-breakers only): privacy pipeline · local buffering · explainable AI
 [React dashboard]
 ```
 
-**Regions:** run SaaS twice (`REGION=in`, `REGION=eu`). Each tenant is pinned to one region; its data lives only there.
-**Tenant isolation:** `tenant_id` derived from the authenticated credential and enforced in every query; one DB file per tenant.
+**High availability:** 2+ stateless SaaS replicas behind a load balancer, one shared Postgres, collectors always talk to the single load-balanced URL. Killing a replica must not lose or duplicate data.
+**Regions (design only):** a tenant can be pinned to a region and its data kept there; we document this and show UTC handling, but the live demo uses the single central SaaS.
+**Tenant isolation:** `tenant_id` derived from the authenticated credential and enforced in every query; Postgres row-level security by tenant (schema-per-tenant as an upgrade path).
 
 ### Allow-listed egress payload (single source of truth: `collector/schema.py`)
 ```
@@ -112,18 +128,19 @@ Stale/missing data **downgrades** the state; every transition is UTC-timestamped
 
 ```
 cicada/
-├─ collector/   adapters/ redact.py schema.py aggregate.py local_analysis.py outbox.py sender.py ui/
+├─ collector/   parsers/ (any format) adapters/ redact.py schema.py aggregate.py local_analysis.py outbox.py sender.py enroll.py ui/
 ├─ saas/        ingest.py auth.py store.py health.py aiops/{baseline,anomaly,correlate,recommend}.py
 │               remediation.py proof.py config/thresholds.yaml
 ├─ dashboard/   React + Vite + Recharts
 ├─ simulator/   stream generator + scenario injectors
 ├─ docs/        Phase 1 / Phase 2 artifacts, diagrams
 ├─ scripts/     demo_*.sh (one per live scenario)
+├─ deploy/      load balancer config, install + enrollment scripts, CI workflow
 ├─ docker-compose.yml
 └─ starter.md
 ```
 
-**Stack:** Python 3.11 (FastAPI, SQLite, Pydantic) · React + Vite · Docker Compose.
+**Stack:** Python 3.11 (FastAPI, Pydantic) · SQLite on the collector, Postgres on the SaaS · nginx or Traefik load balancer · React + Vite · Docker Compose · GitHub Actions CI.
 
 ---
 
@@ -131,9 +148,9 @@ cicada/
 
 | Role | Owns |
 |---|---|
-| **A — Collector & security** | adapters, redaction, schema/policy, outbox/buffering, sender, TLS/HMAC, egress panel, local UI |
-| **B — SaaS & AIOps** | ingest, dedup, tenant store, health engine, anomaly/correlation/recommendations, remediation sim, proof metrics |
-| **C — Dashboard & demo** | React views, simulator + scenario scripts, Phase 1/2 docs, pitch |
+| **A — Collector & security** | any-format parsers and normalization, redaction, schema/policy, outbox/buffering, batching + compression, sender, TLS/HMAC, enrollment, egress panel, local UI, collector Docker image |
+| **B — SaaS & AIOps** | stateless replicas on Postgres, ingest, DB-enforced dedup, tenant isolation, health engine, anomaly/correlation/recommendations, remediation sim, proof metrics |
+| **C — Dashboard & demo** | React views, simulator (multi-format) + scenario scripts, compose with load balancer and 2 replicas, one-command start, CI, Phase 1/2 docs, pitch |
 
 With 2 people, merge C into A/B. **Hour 1: agree and freeze the payload schema + API contract** so work runs in parallel.
 
@@ -147,7 +164,7 @@ With 2 people, merge C into A/B. **Hour 1: agree and freeze the payload schema +
 | 2–5 | Architecture diagram (all hops labeled), payload schema doc, outage/dedup + tenant-isolation design, scaling notes | **Phase 2** |
 | 2–10 | MVP pipeline: simulator → collector → outbox → SaaS → dashboard with 4 health states | |
 | 10–15 | Buffering/retry/heartbeat/offline detection, egress panel, failed-login detection, baseline anomaly, proof-metrics page | **Phase 3** |
-| 15–19 | Correlation, explainable recommendations, remediation sim, multi-tenant + 2 regions, out-of-order/dedup demo | |
+| 15–19 | Correlation, explainable recommendations, remediation sim, multi-tenant + HA (2 SaaS replicas, kill-one demo), out-of-order/dedup demo | |
 | 19–22 | Rehearse all live scenarios on organizer stream; tune thresholds to cut false alarms | |
 | 22–24 | Slides, Q&A prep, final dry run | **Phase 4** |
 
@@ -198,14 +215,15 @@ Stream → collector redaction → egress panel → SaaS ingest with dedup → 4
 - *How are collectors authenticated and data encrypted?* → per-collector API key, HMAC-signed body, TLS.
 - *Real anomaly vs. normal spike?* → EWMA/MAD baseline, persistence over several windows, multi-signal agreement.
 - *What happens when SaaS is unreachable?* → outbox buffer, exponential-backoff retry, replay with idempotent `payload_id`.
-- *How do you scale?* → stateless regional ingest, queue (Kafka/NATS) in production, time-series store (Timescale/ClickHouse), tenant-sharded storage.
+- *How do you scale?* → stateless SaaS replicas behind a load balancer (regional ingest as an extension), queue (Kafka/NATS) in production, time-series store (Timescale/ClickHouse), tenant-sharded storage.
 - *Safeguards before automated remediation?* → policy bounds, human approval, audit log, rollback, test-environment-only.
 
 ## 11. Honest limitations (state them plainly in Phase 4)
 
 - Remediation is simulated, not executed.
 - Self-signed TLS and a shared-secret HMAC; production needs mTLS and a KMS/rotation.
-- SQLite per tenant; production needs a scalable time-series store and a message queue.
+- Single Postgres behind the replicas is still one failure point; production needs a replicated database, a message queue and a time-series store.
+- Format auto-detection covers a fixed set of formats; unknown formats fall back to generic text parsing with less accurate fields.
 - Regex redaction can miss novel secret formats; production adds entropy detection and DLP review.
 - Baselines are simple statistics; no learned models or seasonality yet.
 

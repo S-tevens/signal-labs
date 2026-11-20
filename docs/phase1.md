@@ -145,8 +145,9 @@ Nothing crosses the boundary except what the policy gate (⑥) allows, and every
 
 ## 8. Global concerns (awareness from day one)
 
-- **Regions:** collectors send to their assigned regional endpoint (demo: `in` and `eu`).
-- **Residency:** each tenant's metadata is stored only in its chosen region.
+- **Central, highly available SaaS (organizer guidance):** collectors send to one load-balanced endpoint backed by 2+ stateless replicas. Regional endpoints remain a design option, documented but not the live demo.
+- **Residency (design):** a tenant's metadata can be pinned to its chosen region and never replicated elsewhere without policy approval.
+- **Any input format:** the collector auto-detects and normalizes JSON, syslog, text, CSV, key=value, SNMP and flow data before redaction.
 - **Time:** all events carry UTC plus the source timezone; dashboards render in the viewer's zone.
 - **Ordering:** late events are placed by event time, not arrival time.
 - **Idempotency:** every payload has a unique ID, so retries after an outage never create duplicates.
