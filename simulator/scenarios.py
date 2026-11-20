@@ -259,15 +259,44 @@ def delivery():
 
 
 def remediation():
-    expect("an incident is proposed for remediation: approval step, audit record and rollback plan (simulation only)")
+    expect("policy check, human approval, audit trail and rollback plan; simulation only, nothing is executed")
     inc = saas_get("/v1/incidents")
     if not isinstance(inc, list) or not inc:
         print("  no incident yet. Run 'alert-storm' or 'cpu-spike' first.")
         return
-    ident = inc[0]["id"]
-    status, res = _call(f"{SAAS}/v1/remediation/{ident}/approve", b"", {"Authorization": f"Bearer {DASH}"}, "POST")
-    print(f"  approve incident {ident[:8]} -> HTTP {status}")
-    print("  ", json.dumps(res, indent=2) if isinstance(res, dict) else res)
+    incident = inc[0]
+    iid = incident["id"]
+    auth = {"Authorization": f"Bearer {DASH}", "Content-Type": "application/json"}
+
+    def post(path, body=None):
+        return _call(f"{SAAS}{path}", json.dumps(body).encode() if body is not None else b"", auth, "POST")
+
+    print(f"  incident {iid[:8]} | {incident.get('severity')} | {incident.get('recommendation', {}).get('likely_cause')}")
+
+    # 1. Policy check: an action must target the incident's own source. A different source is refused.
+    status, res = post("/v1/actions/propose", {"incident_id": iid, "action_type": "isolate_source", "parameters": {"source_id": "src_0000000000000000"}})
+    print(f"  1. policy check, isolate a DIFFERENT source: HTTP {status} ({res.get('detail') if isinstance(res, dict) else res})  <- refused as expected" if status == 422 else f"  1. policy check: HTTP {status} {res}  <- BAD, expected 422")
+
+    # 2. A valid proposal.
+    status, action = post("/v1/actions/propose", {"incident_id": iid, "action_type": "restart_service", "parameters": {"service": "web-frontend"}})
+    if status != 200 or not isinstance(action, dict):
+        print(f"  2. propose: HTTP {status} {action}")
+        return
+    aid = action["id"]
+    print(f"  2. proposed {action['action_type']} {action['parameters']} -> status={action['status']} | simulation_only={action['simulation_only']}")
+    print(f"     rollback plan: {action['rollback_plan']}")
+
+    # 3. Human approval, then 4. rollback.
+    status, action = post(f"/v1/actions/{aid}/approve")
+    print(f"  3. approve -> HTTP {status} status={action.get('status') if isinstance(action, dict) else action}")
+    status, action = post(f"/v1/actions/{aid}/rollback")
+    print(f"  4. rollback -> HTTP {status} status={action.get('status') if isinstance(action, dict) else action}")
+    if isinstance(action, dict):
+        print("  audit trail:")
+        for a in action.get("audit", []):
+            print(f"    {a.get('ts')} | {a.get('action')} | by role={a.get('detail', {}).get('role')}")
+    status, _ = post(f"/v1/actions/{aid}/approve")
+    print(f"  5. approving again after rollback: HTTP {status}  " + ("(refused: invalid transition)" if status == 409 else "<- BAD, expected 409"))
 
 
 def _lb_status():

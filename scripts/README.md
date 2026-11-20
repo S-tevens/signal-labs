@@ -79,6 +79,7 @@ Real host names, IPs and ports stay on the collector. Each host, probe target an
 - Run `python simulator\generator.py --seconds 120` (or leave `run-local.ps1`'s simulator running) first, so the SaaS has a baseline.
 - `outage` cuts the collector's link, buffers, reconnects and then proves zero loss by comparing payload ID sets.
 - `delivery` posts a duplicate, an out-of-order event and a same-ID-different-body payload straight to the SaaS.
+- `remediation` drives the SaaS action lifecycle on the latest incident: a policy check that refuses an action on a different source, then propose, approve, roll back, the audit trail, and a blocked invalid transition. It is a simulation: nothing is executed.
 - Scenarios on the same host within about 2 minutes join one incident, because correlation is per source and time window.
 
 ## Known limits
