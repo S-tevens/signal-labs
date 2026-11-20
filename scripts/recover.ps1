@@ -17,9 +17,9 @@ $pidFile = Join-Path $root "data\run.pids.json"
 if ($Restart) {
   if (Test-Path $pidFile) { Remove-Item $pidFile -Force }  # a stale file from an interrupted start can block a restart
   & (Join-Path $PSScriptRoot "stop-local.ps1") 2>&1 | Out-Null
-  $args2 = @("-Restart", "-NoSimulator")
-  if ($ca) { $args2 += "-Tls" }
-  & (Join-Path $PSScriptRoot "run-local.ps1") @args2 2>&1 | Out-Null
+  $opts = @{ Restart = $true; NoSimulator = $true }   # a hashtable splats as named switches; an array would be positional
+  if ($ca) { $opts["Tls"] = $true }
+  & (Join-Path $PSScriptRoot "run-local.ps1") @opts 2>&1 | Out-Null
 }
 
 function Test-Http($url) { try { $null = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 4; return $true } catch { return $false } }
@@ -38,9 +38,9 @@ if ($collector) {
 # collector's job and is shown in the egress panel).
 function Test-Port($port) { try { $c = New-Object System.Net.Sockets.TcpClient; $c.Connect("127.0.0.1", $port); $c.Close(); return $true } catch { return $false } }
 $saasPort = ([uri]$saas).Port
-Report "SaaS entry point     $saas" (Test-Port $saasPort) ".\scriptsecover.ps1 -Restart"
-Report "SaaS replica 1       127.0.0.1:8000" (Test-Port 8000) "one replica down is survivable (the proxy fails over); bring it back with .\scriptsecover.ps1 -Restart"
-Report "SaaS replica 2       127.0.0.1:8001" (Test-Port 8001) "one replica down is survivable (the proxy fails over); bring it back with .\scriptsecover.ps1 -Restart"
+Report "SaaS entry point     $saas" (Test-Port $saasPort) ".\scripts\recover.ps1 -Restart"
+Report "SaaS replica 1       127.0.0.1:8000" (Test-Port 8000) "one replica down is survivable (the proxy fails over); bring it back with .\scripts\recover.ps1 -Restart"
+Report "SaaS replica 2       127.0.0.1:8001" (Test-Port 8001) "one replica down is survivable (the proxy fails over); bring it back with .\scripts\recover.ps1 -Restart"
 Report "dashboard            http://127.0.0.1:5173" (Test-Http "http://127.0.0.1:5173") "start it with .\scripts\run-local.ps1 (without -NoDashboard), or open the egress panel and the API directly"
 $pg = $false; try { $c = New-Object System.Net.Sockets.TcpClient; $c.Connect("127.0.0.1", 5433); $pg = $true; $c.Close() } catch { }
 Report "Postgres            127.0.0.1:5433" $pg ".\scripts\recover.ps1 -Restart (data is kept in data\pg)"
