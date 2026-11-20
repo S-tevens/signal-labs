@@ -40,6 +40,7 @@ $steps = @(
   @{ Name = "outage";        Cmd = @("simulator\scenarios.py", "outage") },
   @{ Name = "delivery";      Cmd = @("simulator\scenarios.py", "delivery") },
   @{ Name = "tenants";       Cmd = @("simulator\scenarios.py", "tenants") },
+  @{ Name = "rbac";          Cmd = @("simulator\scenarios.py", "rbac") },
   @{ Name = "flood";         Cmd = @("simulator\scenarios.py", "flood") },
   @{ Name = "verify";        Cmd = @("simulator\verify.py", "all") }
 )

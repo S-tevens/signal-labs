@@ -1168,7 +1168,7 @@ function Dashboard() {
             {nav.map((n) => <a key={n.id} href={`#/${n.id}`} className={page === n.id ? 'active' : ''} aria-current={page === n.id ? 'page' : undefined}>{n.label}{n.id === 'incidents' && <span className="nav-count">{incidents.filter(i => region === 'all' || i.region === region).length}</span>}</a>)}
             <a className="nav-cta" href="#/incidents">Review incidents <span>{incidents.filter(i => region === 'all' || i.region === region).length}</span></a>
           </nav>
-          {mode === "live" && session && <p className="tenant-scope">Tenant: <strong>{session.tenant_id}</strong> · Region: {session.region.toUpperCase()} · To switch tenants, use a dashboard token for that tenant.</p>}
+          {mode === "live" && session && <p className="tenant-scope">Tenant: <strong>{session.tenant_id}</strong> · Region: {session.region.toUpperCase()} · Role: <strong>{session.role}</strong> · To switch tenants or roles, use a dashboard token for that tenant and role.</p>}
           {mode === "live" && status === "loading" && (
             <div className="notice">
               <RefreshCw size={18} />

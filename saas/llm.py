@@ -28,7 +28,10 @@ import httpx
 log = logging.getLogger("saas.llm")
 
 PROVIDER = "Google Gemini"
-MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+# Tried in order when the first model is overloaded, rate limited or not offered to this key.
+FALLBACK_MODELS = ("gemini-flash-lite-latest", "gemini-3-flash-preview")
+RETRY_STATUSES = (404, 429, 500, 502, 503, 504)
 ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 KEY_FILE = Path(os.getenv("GEMINI_API_KEY_FILE") or Path(__file__).resolve().parents[1] / "data" / "gemini.key")
 
@@ -42,7 +45,7 @@ SYSTEM_PROMPT = (
     "Write plain text, at most 120 words, in four short parts labelled 'What happened:', 'Why it was flagged:', "
     "'Check first:' (two or three concrete investigation steps) and 'Uncertain:'. Cite the actual numbers from the data. "
     "Use the word 'possible' for causes: you cannot prove a root cause. Do not invent facts that are not in the data, "
-    "and do not suggest running commands or changing systems."
+    "do not mention thresholds or baselines unless they appear in the data, and do not suggest running commands or changing systems."
 )
 
 
@@ -75,7 +78,7 @@ def build_facts(props: dict) -> dict:
 
 class Engine:
     def __init__(self, key: str | None = None, client: httpx.Client | None = None, model: str = MODEL,
-                 timeout: float = 15.0, max_per_minute: int = 20, cache_size: int = 256):
+                 timeout: float = 8.0, max_per_minute: int = 20, cache_size: int = 256):
         self._key = key
         self._client = client
         self.model, self.timeout, self.max_per_minute = model, timeout, max_per_minute
@@ -114,24 +117,35 @@ class Engine:
             "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1500},
         }
         client = self._client or httpx.Client(timeout=self.timeout)
+        text, used, last_status = "", self.model, None
+        deadline = time.time() + 20  # one summary never holds a request longer than this, whatever the fallbacks do
         try:
-            resp = client.post(ENDPOINT.format(model=self.model), json=body, headers={"x-goog-api-key": key, "Content-Type": "application/json"})
-            resp.raise_for_status()
-            parts = resp.json()["candidates"][0]["content"]["parts"]
-            text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
-        except httpx.HTTPStatusError as exc:
-            log.warning("Gemini request failed: HTTP %s", exc.response.status_code)
-            return {"available": False, "reason": f"The AI service returned HTTP {exc.response.status_code}."}
-        except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
-            log.warning("Gemini request failed: %s", type(exc).__name__)
-            return {"available": False, "reason": "The AI service could not be reached or returned an unexpected answer."}
+            for model in dict.fromkeys((self.model, *FALLBACK_MODELS)):
+                if time.time() > deadline:
+                    break
+                try:
+                    resp = client.post(ENDPOINT.format(model=model), json=body, headers={"x-goog-api-key": key, "Content-Type": "application/json"})
+                    resp.raise_for_status()
+                    parts = resp.json()["candidates"][0]["content"]["parts"]
+                    text, used = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip(), model
+                    break
+                except httpx.HTTPStatusError as exc:
+                    last_status = exc.response.status_code
+                    log.warning("Gemini request failed on %s: HTTP %s", model, last_status)
+                    if last_status not in RETRY_STATUSES:
+                        break
+                except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
+                    last_status = None
+                    log.warning("Gemini request failed on %s: %s", model, type(exc).__name__)
         finally:
             if self._client is None:
                 client.close()
         if not text:
-            return {"available": False, "reason": "The AI service returned no text."}
+            if last_status is not None:
+                return {"available": False, "reason": f"The AI service returned HTTP {last_status}."}
+            return {"available": False, "reason": "The AI service could not be reached or returned an unexpected answer."}
         result = {
-            "available": True, "text": text[:1500], "provider": PROVIDER, "model": self.model,
+            "available": True, "text": text[:1500], "provider": PROVIDER, "model": used,
             "generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "input_digest": digest[:16],
             "basis": "Generated from incident metadata only. It is an investigation lead, not proof of a root cause.",
         }
