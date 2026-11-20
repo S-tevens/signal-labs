@@ -7,12 +7,13 @@ import hmac
 import json
 import logging
 import ssl
+import time
 from datetime import datetime, timezone
 
 import httpx
 
 from .config import COLLECTOR_VERSION, Config
-from .outbox import LocalStore
+from .outbox import LocalStore, digest_of
 
 log = logging.getLogger("collector.sender")
 
@@ -28,6 +29,9 @@ def tls_context(ca_file: str = "") -> ssl.SSLContext:
     return ctx
 
 
+HOLD_MAX_S = 300.0  # a hold releases itself after five minutes so a forgotten hold cannot silence the collector
+
+
 def sign(secret: str, body: bytes) -> str:
     return hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
@@ -39,11 +43,40 @@ class Sender:
         self.link_up = True  # demo switch for the "SaaS outage" scenario
         self.last_send_utc: str | None = None
         self.last_error: str | None = None
+        self.held_since: float | None = None  # monotonic-free wall clock; None means sending normally
+        self.hold_max_s = HOLD_MAX_S
+        self.last_release: dict | None = None
         self.https = cfg.saas_url.lower().startswith("https://")
         if cfg.require_tls and not self.https:
             raise TlsRequiredError(f"REQUIRE_TLS=1 but SAAS_URL is {cfg.saas_url!r}; use an https:// URL")
         if not self.https:
             log.warning("SaaS link is plain HTTP: payloads are authenticated and signed but NOT encrypted")
+
+    # --- hold / release (E18): a person can stop payloads leaving, look at them, then let them go ---
+    def hold(self) -> dict:
+        if self.held_since is None:
+            self.held_since = time.time()
+        return self.hold_state()
+
+    def release(self, reason: str = "released by operator") -> dict:
+        if self.held_since is not None:
+            held_for = time.time() - self.held_since
+            self.last_release = {"at_utc": datetime.now(timezone.utc).isoformat(), "reason": reason, "held_for_s": round(held_for, 1)}
+        self.held_since = None
+        return self.hold_state()
+
+    def hold_state(self) -> dict:
+        """Held or not, and how long until the automatic release. Expires the hold as a side effect."""
+        if self.held_since is not None and time.time() - self.held_since >= self.hold_max_s:
+            self.release("auto-release after the maximum hold time")
+        held = self.held_since is not None
+        return {
+            "held": held,
+            "held_since_utc": datetime.fromtimestamp(self.held_since, timezone.utc).isoformat() if held else None,
+            "auto_release_in_s": round(max(0.0, self.hold_max_s - (time.time() - self.held_since)), 1) if held else None,
+            "max_hold_s": self.hold_max_s,
+            "last_release": self.last_release,
+        }
 
     @property
     def transport(self) -> str:
@@ -68,9 +101,17 @@ class Sender:
         }
 
     async def send_once(self, client: httpx.AsyncClient) -> None:
-        if not self.link_up:
+        if not self.link_up or self.hold_state()["held"]:
             return
-        batch = self.store.pending(self.cfg.batch_size)
+        rows = self.store.pending_rows(self.cfg.batch_size)
+        # Send only what was queued: a body that no longer matches its queue-time digest is never sent.
+        batch = []
+        for payload, digest in rows:
+            if digest and digest_of(payload) != digest:
+                self.store.mark_rejected(payload["payload_id"], "digest mismatch: queued body was altered")
+                self.last_error = f"payload {payload['payload_id'][:8]} altered after queueing; not sent"
+                continue
+            batch.append(payload)
         if not batch:
             return
         ids = [p["payload_id"] for p in batch]

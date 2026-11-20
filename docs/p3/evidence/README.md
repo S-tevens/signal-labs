@@ -12,3 +12,5 @@ How to read a run:
 - The settings the run used (collector timing profile and the platform's thresholds) are at the bottom of every `.md`.
 
 Compare runs by the **settings** section: a result only means something alongside the window, grace, send interval and thresholds it was measured with.
+
+`verify-<UTC time>.md` / `.json` are runs of `.\scriptserify.ps1` (task E19): the match verifier and the canary scan, with the positive controls that keep a PASS honest. See scripts/README.md, "Proving the privacy claim".

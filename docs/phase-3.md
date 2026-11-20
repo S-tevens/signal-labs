@@ -73,7 +73,7 @@ Priority: **P0** = a Phase 3 tick or a mandatory item; **P1** = strengthens Phas
 | E24 | P2 | **Pipeline stage page** (carried over from E6): received, parsed by format, redacted by rule, dropped, aggregated, queued, sent | `collector/ui/`, `main.py` | Counts per stage add up and are visible live |
 | E25 | P0 | Docs: `docs/p3/collector.md` (demo order, expected output of each command, how each target is measured) and the evidence files; update the statuses in this file | `docs/p3/` | A teammate can run the whole Phase 3 demo from the document alone |
 
-**Progress (Member 1):** E14 done (`simulator/measure.py`, `scripts/measure.ps1`, evidence in `docs/p3/evidence/`, 14 unit tests); E15 done (`PROFILE=realtime`, `run-local.ps1 -Profile`, measured, 7 unit tests). The rest are not started.
+**Progress (Member 1):** E18 done (hold and release, buffer strip, digest, sent time, 5-minute auto-release, `demo.ps1 hold`, 7 unit tests); E19 done (`simulator/verify.py`, `scripts/verify.ps1`: match and canary scan with positive controls, 12 unit tests, first evidence in `docs/p3/evidence/verify-*.md`); E14 done (`simulator/measure.py`, `scripts/measure.ps1`, evidence in `docs/p3/evidence/`, 14 unit tests); E15 done (`PROFILE=realtime`, `run-local.ps1 -Profile`, measured, 7 unit tests). The rest (E16, E17, E20 to E25) are not started.
 
 ### Member 2: Platform (dashboard, health, timing path, proof views)
 

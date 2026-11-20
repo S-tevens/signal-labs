@@ -233,7 +233,32 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
             "counts": store.counts(),
             "last_send_utc": sender.last_send_utc,
             "last_error": sender.last_error,
+            "hold": sender.hold_state(),
+            **{k: v for k, v in store.pending_info().items() if k != "pending"},
         }
+
+    def _operator_only(request: Request) -> None:
+        """Changing what leaves the building needs a deliberate request from the local page itself.
+
+        A web page open in the same browser could try to POST here (cross-site request). It cannot set a custom
+        header without a preflight this server never answers, and its Host would not be the loopback name.
+        """
+        host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]").lower()
+        if not cfg.local_allow_remote and host not in {"localhost", "127.0.0.1", "::1"}:
+            raise HTTPException(403, "hold and release answer only to the local address")
+        if request.headers.get("x-requested-with") != "local-ui":
+            raise HTTPException(403, "missing the X-Requested-With: local-ui header")
+
+    @app.post("/local/hold")
+    def local_hold(request: Request):
+        """Stop payloads leaving. They stay in the outbox, visible in the egress panel, until released."""
+        _operator_only(request)
+        return sender.hold()
+
+    @app.post("/local/release")
+    def local_release(request: Request):
+        _operator_only(request)
+        return sender.release()
 
     @app.post("/local/saas-link/{state}")
     def saas_link(state: str):

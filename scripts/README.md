@@ -5,6 +5,7 @@ Everything runs locally on Windows PowerShell with dev credentials. No Docker.
 | Script | What it does |
 |---|---|
 | `run-local.ps1` | Starts Postgres (port 5433), runs the migration, then two SaaS replicas, the collector, the simulator and the dashboard. Flags: `-Tls`, `-Profile default|realtime`, `-NoSimulator`, `-NoHostTelemetry`, `-NoProxy`, `-NoDashboard`, `-Restart`, `-Status` |
+| `verify.ps1` | Proof tools: the egress log equals what the SaaS stored, and planted canary secrets appear nowhere on the platform. PASS or FAIL. See [Proving the privacy claim](#proving-the-privacy-claim) |
 | `measure.ps1` | Measures the real-time targets and delivery from timestamps and writes an evidence file. See [Measuring the real-time targets](#measuring-the-real-time-targets) |
 | `lb.py` | The failover proxy that `run-local.ps1` puts in front of the two replicas (port 8080). Round robin, exact request bytes, automatic failover and recovery. Run it by hand with `python scripts\lb.py --help` |
 | `stop-local.ps1` | Stops everything it started (`-KeepDb` leaves Postgres running) |
@@ -78,6 +79,30 @@ Open `http://127.0.0.1:8101/local/ui` (collector, this machine only). Pick a pay
 - Log text is attacker-controlled, so the page never turns data into markup (text nodes only, no `innerHTML`) and is served under a strict content-security policy. A test fails if that changes.
 - `GET /local/lineage/<payload_id>` is the same data as JSON: the payload, its raw records, the highlighted spans and the markings.
 
+**Hold and release.** The strip at the top shows the link state, how many payloads are waiting, how long the oldest has waited and the last error. **Hold sending** stops payloads leaving: they stay in the outbox, visible in the list as `pending`, with the SHA-256 of their exact bytes. **Release** lets them go under the same IDs. A hold ends by itself after 5 minutes. Heartbeats keep flowing during a hold, so the platform still sees the collector as alive. Each payload shows its digest and, once delivered, its sent time.
+
+```
+.\scripts\demo.ps1 hold             # holds, injects a secret-bearing record, shows it pending, releases it, checks ID and digest
+```
+
+- The digest is fixed when the payload is queued. If the stored body ever differs from it, that payload is not sent and is closed out as rejected, with the reason on the strip.
+- Hold and release answer only to this machine, only with a Host of `localhost`, `127.0.0.1` or `::1`, and only with an `X-Requested-With: local-ui` header that the page sends. Another site open in your browser cannot set that header without a preflight the collector never answers.
+
+## Proving the privacy claim
+
+```
+.\scriptserify.ps1            # both checks
+.\scriptserify.ps1 match      # the egress log equals what the SaaS stored
+.\scriptserify.ps1 canary     # planted secrets appear nowhere on the platform
+```
+
+Exit code 0 = PASS, 1 = FAIL, 2 = INCOMPLETE (a required check could not run, so nothing is claimed). Evidence goes to `docs\p3\evidenceerify-<time>.md` and `.json`.
+
+- **Match** compares the newest 300 payloads the collector reports as sent with the observation the platform stored under the same ID, field by field (the platform widens timestamps to microseconds; that is ignored). It reports payloads missing at the platform, any field that differs, a changed digest in the egress log, and platform payloads the collector never sent.
+- **Canary** plants eight fake secrets unique to the run (password, API key, JWT, email, AWS key, username, host name, free text) in four log formats, waits for the payloads to be delivered, then searches the collector's egress log, 100+ platform API responses, every table of the platform database for all tenants (read with the admin role through `psql`) and the platform logs, for each canary in plain, lower-case, JSON-escaped, URL-encoded and base64 forms.
+- **Controls that keep a PASS honest:** the scanner must find a canary it is shown; every canary must appear in the collector's local raw store (so it was really received); the run must have produced payloads; and every surface scanned must contain a known real value (so an empty or unreadable surface cannot pass). If the database cannot be read the result is INCOMPLETE, not PASS.
+- Limits: it proves these canaries did not travel, not that no other secret ever could. The database scan needs `psql` (found automatically, or set `PG_BIN`); `ADMIN_DATABASE_URL` overrides the default local connection.
+
 ## TLS (`-Tls`)
 
 ```
@@ -138,7 +163,7 @@ The token only ever travels over verified HTTPS (plain HTTP is refused). The col
 
 ## Scenarios
 
-`enroll`, `flood`, `failover`, `tls`, `secret`, `failed-logins`, `cpu-spike`, `latency`, `packet-loss`, `disk`, `alert-storm`, `outage`, `delivery`, `remediation`.
+`enroll`, `flood`, `failover`, `tls`, `secret`, `hold`, `failed-logins`, `cpu-spike`, `latency`, `packet-loss`, `disk`, `alert-storm`, `outage`, `delivery`, `remediation`.
 
 - Run `python simulator\generator.py --seconds 120` (or leave `run-local.ps1`'s simulator running) first, so the SaaS has a baseline.
 - `outage` cuts the collector's link, buffers, reconnects and then proves zero loss by comparing payload ID sets.

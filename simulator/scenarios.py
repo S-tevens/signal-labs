@@ -172,6 +172,47 @@ def secret():
     print("  Open", f"{COLLECTOR}/local/raw", "(secrets visible, local) and", f"{COLLECTOR}/local/egress", "(what left)")
 
 
+def hold():
+    """Hold sending, let a secret-bearing record become a payload, inspect it, release, and prove it arrived unchanged."""
+    expect("held: the payload waits in the buffer with its digest and no secret; released: the same ID and digest reach the SaaS")
+    local = {"X-Requested-With": "local-ui"}
+    tag = uuid.uuid4().hex[:8]
+    host, secret_value = f"hold-demo-{tag}", f"Hold!{tag}Pw"
+    print("  1. HOLD", _call(f"{COLLECTOR}/local/hold", b"", local, "POST")[1].get("held"))
+    # Anything queued before the hold may already be on its way, so only payloads created from now on are judged.
+    before = {e["payload_id"] for e in _call(f"{COLLECTOR}/local/egress?limit=2000")[1]}
+    now = iso(time.time() - 8)
+    collector_send([
+        json.dumps({"kind": "metric", "ts": now, "host": host, "name": "cpu_utilization_percent", "value": 33.0}),
+        f'ts={now} host={host} msg="login ok user=alice@corp.com password={secret_value}"',
+    ])
+    wait_flush()
+    rows = [e for e in _call(f"{COLLECTOR}/local/egress?limit=2000")[1] if e["payload_id"] not in before]
+    buf = _call(f"{COLLECTOR}/local/buffer")[1]
+    held_ok = bool(rows) and all(r["status"] == "pending" for r in rows)
+    print(f"  2. while held: {len(rows)} new payload(s), all pending: {held_ok}; buffer: {buf['pending']} waiting, oldest {buf.get('oldest_pending_age_s')} s")
+    ours = [r for r in rows if secret_value in json.dumps(_call(f"{COLLECTOR}/local/lineage/{r['payload_id']}")[1])]
+    print(f"     {len(ours)} of them came from the record that contained the secret (found through the local raw store)")
+    clean = bool(ours) and secret_value not in json.dumps(rows) and "alice@corp.com" not in json.dumps(rows)
+    print(f"     secret in any pending payload? {not clean}   (digest of the first: {rows[0]['digest'][:16] if rows else '-'}...)")
+    at_saas_early = [r["payload_id"] for r in rows if _call(f"{SAAS}/v1/objects/observation/{r['payload_id']}", headers={"Authorization": f"Bearer {DASH}"})[0] == 200]
+    print(f"     any of them at the SaaS while held? {bool(at_saas_early)}")
+    digests = {r["payload_id"]: r["digest"] for r in rows}
+    print("  3. RELEASE", not _call(f"{COLLECTOR}/local/release", b"", local, "POST")[1].get("held"))
+    deadline, arrived = time.time() + 20, {}
+    while time.time() < deadline and len(arrived) < len(rows):
+        time.sleep(1)
+        for r in rows:
+            code, body = _call(f"{SAAS}/v1/objects/observation/{r['payload_id']}", headers={"Authorization": f"Bearer {DASH}"})
+            if code == 200:
+                arrived[r["payload_id"]] = body["properties"]
+    after = {e["payload_id"]: e for e in _call(f"{COLLECTOR}/local/egress?limit=2000")[1]}
+    same = all(after[i]["digest"] == digests[i] and after[i]["status"] == "sent" for i in arrived)
+    print(f"  4. after release: {len(arrived)} of {len(rows)} reached the SaaS under the same ID; digest unchanged and status sent: {same}")
+    ok = held_ok and clean and not at_saas_early and len(arrived) == len(rows) and same
+    print("  RESULT:", "PASS" if ok else "FAIL")
+
+
 def failed_logins():
     expect("one auth_failure_burst event (count=30, critical) and no raw login records exported")
     collector_send(failed_login_lines("web-1", 30))
@@ -533,6 +574,7 @@ SCENARIOS = {
     "alert-storm": alert_storm,
     "delivery": delivery,
     "remediation": remediation,
+    "hold": hold,
 }
 
 
