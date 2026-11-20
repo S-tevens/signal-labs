@@ -5,7 +5,7 @@
     .\scripts\demo.ps1 failed-logins
     .\scripts\demo.ps1 outage
 
-  Scenarios: failover, tls, secret, outage, failed-logins, latency, cpu-spike, packet-loss, disk, alert-storm, delivery, remediation.
+  Scenarios: enroll, flood, failover, tls, secret, outage, failed-logins, latency, cpu-spike, packet-loss, disk, alert-storm, delivery, remediation.
   Each prints what to expect, injects the event, then shows what the SaaS did.
   Run a steady stream first so the SaaS has a baseline:  python simulator\generator.py --seconds 120
 #>

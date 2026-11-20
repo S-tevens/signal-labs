@@ -9,7 +9,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
-from .config import COLLECTOR_VERSION, Config
+from .config import COLLECTOR_VERSION, DEV_COLLECTOR_KEY, Config
+from .enroll import EnrollmentError, ensure_enrolled
 from .outbox import LocalStore
 from .pipeline import Pipeline
 from .redact import find_spans
@@ -34,8 +35,14 @@ def _ui_file(name: str) -> Response:
 
 
 def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
-    cfg = cfg or Config()
-    store = LocalStore(cfg.data_dir)
+    cfg = ensure_enrolled(cfg or Config())  # first start with ENROLL_TOKEN set: enroll, then use the new credentials
+    if cfg.credentials_source == "environment" and cfg.collector_key == DEV_COLLECTOR_KEY:
+        logging.getLogger("collector").warning(
+            "running on the built-in DEV credentials: enroll this collector (python -m collector.enroll) before any real use"
+        )
+    store = LocalStore(
+        cfg.data_dir, raw_max_rows=cfg.raw_max_rows, outbox_max_pending=cfg.outbox_max_pending, max_db_bytes=cfg.max_db_bytes
+    )
     pipeline = Pipeline(cfg, store)
     sender = Sender(cfg, store)
 
@@ -54,9 +61,25 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
             pipeline.flush()
             await asyncio.sleep(cfg.flush_interval_s)
 
+    async def retention() -> None:
+        """Delete expired data on a schedule, and tell the platform if the buffer ever had to drop payloads."""
+        log = logging.getLogger("collector.retention")
+        while True:
+            try:
+                done = await asyncio.to_thread(store.apply_retention, cfg.raw_retention_s, cfg.outbox_retention_s)
+                if any(done.values()):
+                    log.info("retention: %s", done)
+                lost = store.take_unreported_drops()
+                if lost:
+                    log.warning("the outbox was full: %d oldest payload(s) were dropped", lost)
+                    pipeline.emit_collector_event("service_state", "warning", lost, "buffer overflow dropped payloads")
+            except Exception:  # retention must never take the collector down
+                log.exception("retention run failed")
+            await asyncio.sleep(cfg.retention_interval_s)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        tasks = [asyncio.create_task(flusher())]
+        tasks = [asyncio.create_task(flusher()), asyncio.create_task(retention())]
         if host_source is not None:
             tasks.append(asyncio.create_task(host_source.run()))
         if run_sender:
@@ -86,7 +109,17 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
 
     @app.post("/ingest")
     async def ingest(request: Request):
-        text = (await request.body()).decode("utf-8", errors="replace")
+        # Read the body in pieces and stop at the limit, so one huge request cannot exhaust memory.
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > cfg.max_ingest_bytes:
+            raise HTTPException(413, f"request body over the {cfg.max_ingest_bytes} byte limit")
+        chunks, total = [], 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > cfg.max_ingest_bytes:
+                raise HTTPException(413, f"request body over the {cfg.max_ingest_bytes} byte limit")
+            chunks.append(chunk)
+        text = b"".join(chunks).decode("utf-8", errors="replace")
         results = [pipeline.process(line) for line in text.splitlines() if line.strip()]
         summary: dict[str, int] = {}
         for r in results:
@@ -101,6 +134,34 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
     @app.get("/local/pipeline")
     def local_pipeline():
         return {"counters": dict(pipeline.counters), "open_windows": pipeline.agg.open_windows(), "window_s": cfg.window_s}
+
+    @app.get("/local/identity")
+    def local_identity():
+        """Who this collector is and where its credentials came from. Never returns a key or a secret."""
+        return {
+            "collector_id": cfg.collector_id,
+            "tenant_ref": cfg.tenant_ref,
+            "region": cfg.region,
+            "saas_url": cfg.saas_url,
+            "credentials": cfg.credentials_source,
+            "enrolled_at": cfg.enrolled_at or None,
+            "uses_dev_defaults": cfg.credentials_source == "environment" and cfg.collector_key == DEV_COLLECTOR_KEY,
+        }
+
+    @app.get("/local/retention")
+    def local_retention():
+        """What is stored, the limits, and every purge and drop so far. Data loss is counted here, never silent."""
+        s = store.retention_status()
+        s["policy"] = {
+            "raw_records": f"deleted after {cfg.raw_retention_s} s, and trimmed to the newest {cfg.raw_max_rows} rows or {cfg.max_db_bytes} live bytes",
+            "transfer_records": f"delivered or rejected payload records deleted after {cfg.outbox_retention_s} s",
+            "undelivered_payloads": f"kept until delivered; if more than {cfg.outbox_max_pending} wait, the OLDEST are dropped, counted, and reported to the platform",
+            "max_line_chars": cfg.max_line_chars,
+            "max_request_bytes": cfg.max_ingest_bytes,
+            "runs_every_s": cfg.retention_interval_s,
+        }
+        s["oversize_lines_dropped"] = pipeline.counters.get("oversize", 0)
+        return s
 
     @app.get("/local/host")
     def local_host():
@@ -167,4 +228,7 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
     return app
 
 
-app = create_app()
+try:
+    app = create_app()
+except EnrollmentError as exc:  # fail closed: never fall back to default credentials after a failed enrollment
+    raise SystemExit(f"enrollment failed: {exc}") from None

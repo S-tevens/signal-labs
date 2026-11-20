@@ -22,9 +22,11 @@ import hashlib
 import hmac
 import json
 import os
+import shutil
 import signal
 import ssl
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -57,7 +59,18 @@ def _call(url, data=None, headers=None, method=None):
             body = r.read().decode()
             return r.status, (json.loads(body) if body else None)
     except error.HTTPError as e:
-        return e.code, e.read().decode()[:300]
+        try:
+            return e.code, e.read().decode()[:300]
+        except OSError:  # the server may close the connection after refusing a huge body
+            return e.code, ""
+
+
+def _poll(url):
+    """A request that may be made before a freshly started process is listening: not up yet means (0, None)."""
+    try:
+        return _call(url)
+    except (error.URLError, OSError):
+        return 0, None
 
 
 def collector_send(lines):
@@ -299,6 +312,139 @@ def remediation():
     print(f"  5. approving again after rollback: HTTP {status}  " + ("(refused: invalid transition)" if status == 409 else "<- BAD, expected 409"))
 
 
+def flood():
+    expect("a flood cannot fill the disk: raw records and the outbox stay within their caps, the oldest data is dropped first, every drop is counted, and the loss is reported")
+    root = Path(__file__).resolve().parents[1]
+    data_dir = root / "data" / "flood-demo"
+    shutil.rmtree(data_dir, ignore_errors=True)
+    port = 8103
+    # A collector with tight limits and no reachable platform, so nothing can drain: the worst case.
+    env = {**os.environ, "DATA_DIR": str(data_dir), "RAW_MAX_ROWS": "500", "OUTBOX_MAX_PENDING": "200", "MAX_DB_BYTES": str(1 << 20),
+           "MAX_LINE_CHARS": "5000", "MAX_INGEST_BYTES": str(2 << 20), "RETENTION_INTERVAL_S": "3", "SAAS_URL": "http://127.0.0.1:9",
+           "HOST_TELEMETRY": "0", "REQUIRE_TLS": "0"}
+    for name in ("SAAS_CA_FILE",):
+        env.pop(name, None)
+    log_dir = root / "data" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log = open(log_dir / "flood-demo.log", "wb")
+    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "collector.main:app", "--port", str(port)], cwd=root, env=env, stdout=log, stderr=log)
+    base = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(30):
+            time.sleep(1)
+            if _poll(f"{base}/healthz")[0] == 200:
+                break
+        else:
+            print("  the demo collector did not start; see data/logs/flood-demo.log")
+            return
+        print("  limits: 500 raw rows, 200 pending payloads, 1 MiB of live data, 5000 characters per line, 2 MiB per request; the platform is unreachable")
+        started = time.time()
+        now = int(time.time())
+        for batch in range(40):  # 40,000 lines across 400 hosts and many windows, so tens of thousands of payloads
+            lines = [json.dumps({"kind": "metric", "host": f"host-{(batch * 1000 + i) % 400}", "name": "cpu_pct", "value": (batch + i) % 100,
+                                 "ts": iso(now - 3600 + batch * 60 + i * 0.05)}) for i in range(1000)]
+            collector_send_to(base, lines)
+        print(f"  1. sent 40,000 lines in {time.time() - started:.1f} s")
+        st, res = _call(f"{base}/ingest", ("x" * 20000).encode(), {}, "POST")
+        print(f"  2. one 20,000-character line: {res}")
+        st, _ = _call(f"{base}/ingest", b"y" * (3 << 20), {}, "POST")
+        print(f"  3. a 3 MiB request: HTTP {st}  " + ("(refused)" if st == 413 else "<- BAD, expected 413"))
+        time.sleep(5)  # let the retention job run and report the loss
+        r = _call(f"{base}/local/retention")[1]
+        u, t = r["usage"], r["totals"]
+        print(f"  4. raw rows kept: {u['raw_rows']} (cap 500) | pending payloads: {u['outbox'].get('pending', 0)} (cap 200) | disk used: {u['disk_bytes'] / 1048576:.1f} MiB")
+        print(f"     counted losses: {t['trimmed_raw_total']} raw rows trimmed | {t['dropped_overflow_total']} oldest payloads dropped | {r['oversize_lines_dropped']} oversize line(s) dropped")
+        eg = _call(f"{base}/local/egress?limit=300")[1]
+        loss = next((e["payload"]["event"] for e in eg if e["payload"].get("event", {}).get("summary") == "buffer overflow dropped payloads"), None)
+        print(f"  5. loss reported to the platform as an event: {loss}")
+        bounded = u["raw_rows"] <= 700 and u["outbox"].get("pending", 0) <= 300 and u["disk_bytes"] < 16 * 1048576
+        print("  RESULT: " + ("bounded, counted and reported" if bounded and t["dropped_overflow_total"] > 0 and loss else "NOT BOUNDED, investigate"))
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        log.close()
+
+
+def collector_send_to(base, lines):
+    return _call(f"{base}/ingest", "\n".join(lines).encode())[1]
+
+
+def enroll_demo():
+    expect("a brand-new collector registers itself with a one-time token and starts reporting on its own credentials, with no key typed anywhere")
+    root = Path(__file__).resolve().parents[1]
+    admin = os.getenv("DASHBOARD_ADMIN_TOKEN", "dash-admin")
+    https = SAAS.startswith("https://")
+    cid = "col-enrolled-" + uuid.uuid4().hex[:4]
+    headers = {"Authorization": f"Bearer {admin}", "Content-Type": "application/json"}
+
+    status, res = _call(f"{SAAS}/v1/enrollment-tokens", json.dumps({"collector_id": cid, "expires_in_s": 300}).encode(), headers, "POST")
+    if status != 200 or not isinstance(res, dict):
+        print(f"  could not issue a token (HTTP {status} {res}). Is the stack from run-local.ps1 running with the admin token?")
+        return
+    token, tenant = res["token"], res["tenant_ref"]
+    print(f"  1. an admin issued a one-time token for {cid} (tenant {tenant}, expires {res['expires_at']}); the token itself is not shown")
+
+    data_dir = root / "data" / "enroll-demo"
+    shutil.rmtree(data_dir, ignore_errors=True)
+    env = {**os.environ, "DATA_DIR": str(data_dir), "ENROLL_TOKEN": token, "ENROLL_TENANT": tenant, "SAAS_URL": SAAS,
+           "HOST_LABEL": "enroll-demo-host", "HEARTBEAT_INTERVAL_S": "3", "REQUIRE_TLS": "1" if https else "0"}
+    for name in ("COLLECTOR_KEY", "COLLECTOR_SECRET", "PSEUDO_SECRET", "COLLECTOR_ID", "TENANT_REF", "REGION"):
+        env.pop(name, None)  # nothing identifies this collector except the token
+    if SAAS_CA:
+        env["SAAS_CA_FILE"] = SAAS_CA
+    if not https:
+        env["ENROLL_ALLOW_HTTP"] = "1"
+        print("  (the SaaS is on plain HTTP, so enrollment is allowed only because this is a dev demo; use -Tls for the real thing)")
+    log_dir = root / "data" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log = open(log_dir / "enroll-demo.log", "wb")
+    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "collector.main:app", "--port", "8102"], cwd=root, env=env, stdout=log, stderr=log)
+    try:
+        ident = None
+        for _ in range(40):
+            time.sleep(1)
+            if proc.poll() is not None:
+                print("  2. the new collector exited at startup; see data/logs/enroll-demo.log")
+                return
+            st, body = _poll("http://127.0.0.1:8102/local/identity")
+            if st == 200 and isinstance(body, dict):
+                ident = body
+                break
+        if not ident:
+            print("  2. the new collector did not come up in 40 s; see data/logs/enroll-demo.log")
+            return
+        print(f"  2. started a new collector with NO keys configured. It enrolled itself: credentials={ident['credentials']}, "
+              f"collector_id={ident['collector_id']}, uses_dev_defaults={ident['uses_dev_defaults']}")
+        creds_file = data_dir / "credentials.json"
+        print(f"  3. its credentials are in {creds_file.relative_to(root)} (readable only by its owner): {'present' if creds_file.exists() else 'MISSING'}")
+
+        seen = None
+        for _ in range(45):
+            fleet = saas_get("/v1/fleet")
+            seen = next((f for f in fleet if f.get("collector_id") == cid), None) if isinstance(fleet, list) else None
+            if seen and seen.get("online"):
+                break
+            time.sleep(1)
+        if seen:
+            print(f"  4. the platform sees it: {cid} | state={seen.get('state')} | online={seen.get('online')} | version={seen.get('version')}")
+        else:
+            print(f"  4. the platform has not seen {cid} yet <- BAD")
+
+        status, _ = _call(f"{SAAS}/v1/enroll", json.dumps({"tenant_ref": tenant, "token": token}).encode(), {"Content-Type": "application/json"}, "POST")
+        print(f"  5. the same token used again: HTTP {status}  " + ("(refused: it is single use)" if status == 401 else "<- BAD, expected 401"))
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        log.close()
+        print("  (the demo collector was stopped; it stays in the fleet and will show as offline)")
+
+
 def _lb_status():
     status, body = _call(f"{SAAS}/_lb/status")
     return body if status == 200 and isinstance(body, dict) else None
@@ -373,6 +519,8 @@ def tls():
 
 
 SCENARIOS = {
+    "flood": flood,
+    "enroll": enroll_demo,
     "failover": failover,
     "tls": tls,
     "secret": secret,

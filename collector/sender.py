@@ -21,6 +21,13 @@ class TlsRequiredError(RuntimeError):
     """REQUIRE_TLS is on but the SaaS URL is not https. The collector refuses to start rather than send in clear."""
 
 
+def tls_context(ca_file: str = "") -> ssl.SSLContext:
+    """Verifying TLS context, TLS 1.2 minimum. With a CA file only that CA is trusted, otherwise the system store."""
+    ctx = ssl.create_default_context(cafile=ca_file or None)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
+
+
 def sign(secret: str, body: bytes) -> str:
     return hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
@@ -50,11 +57,7 @@ class Sender:
         With SAAS_CA_FILE set, only that CA is trusted (the system store is not consulted), so a certificate from any
         other authority is rejected. TLS 1.2 is the minimum.
         """
-        verify: ssl.SSLContext | bool = True
-        if self.https:
-            ctx = ssl.create_default_context(cafile=self.cfg.saas_ca_file or None)
-            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-            verify = ctx
+        verify: ssl.SSLContext | bool = tls_context(self.cfg.saas_ca_file) if self.https else True
         return httpx.AsyncClient(timeout=5.0, verify=verify)
 
     def _headers(self, body: bytes) -> dict:

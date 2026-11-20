@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 COLLECTOR_VERSION = "0.1.0"
+DEV_COLLECTOR_KEY = "key-acme-1"  # the built-in development credential; an enrolled collector never uses it
 
 
 @dataclass
@@ -13,7 +14,7 @@ class Config:
     collector_id: str = field(default_factory=lambda: os.getenv("COLLECTOR_ID", "col-blr-01"))
     tenant_ref: str = field(default_factory=lambda: os.getenv("TENANT_REF", "t-acme"))
     region: str = field(default_factory=lambda: os.getenv("REGION", "in"))
-    collector_key: str = field(default_factory=lambda: os.getenv("COLLECTOR_KEY", "key-acme-1"))
+    collector_key: str = field(default_factory=lambda: os.getenv("COLLECTOR_KEY", DEV_COLLECTOR_KEY))
     collector_secret: str = field(default_factory=lambda: os.getenv("COLLECTOR_SECRET", "dev-secret-acme"))
     pseudo_secret: str = field(default_factory=lambda: os.getenv("PSEUDO_SECRET", "dev-local-pseudonym-secret"))
     saas_url: str = field(default_factory=lambda: os.getenv("SAAS_URL", "http://localhost:8080"))
@@ -46,4 +47,38 @@ class Config:
     saas_ca_file: str = field(default_factory=lambda: os.getenv("SAAS_CA_FILE", ""))  # CA that signed the SaaS cert
     require_tls: bool = field(default_factory=lambda: os.getenv("REQUIRE_TLS", "0") == "1")
     batch_size: int = 50
-    raw_retention_s: int = field(default_factory=lambda: int(os.getenv("RAW_RETENTION_S", "86400")))
+    # Where this collector's identity came from: "enrolled" (credentials.json from the platform) or "environment".
+    credentials_source: str = field(default="environment", init=False)
+    enrolled_at: str = field(default="", init=False)
+
+    def __post_init__(self) -> None:
+        """Use enrolled credentials when this collector has them.
+
+        An explicit COLLECTOR_KEY in the environment wins (an operator override). Otherwise the identity, signing
+        secret, pseudonym secret and platform URL come from <data_dir>/credentials.json, so an enrolled collector never
+        runs on the built-in development defaults. A damaged credentials file raises instead of being ignored.
+        """
+        if str(self.data_dir) == ":memory:" or os.getenv("COLLECTOR_KEY"):
+            return
+        from . import credentials
+
+        creds = credentials.load(self.data_dir)
+        if creds is None:
+            return
+        self.collector_id, self.tenant_ref, self.region = creds["collector_id"], creds["tenant_ref"], creds["region"]
+        self.collector_key, self.collector_secret = creds["collector_key"], creds["collector_secret"]
+        if not os.getenv("PSEUDO_SECRET"):
+            self.pseudo_secret = creds["pseudo_secret"]
+        if not os.getenv("SAAS_URL"):
+            self.saas_url = creds["saas_url"]
+        self.credentials_source = "enrolled"
+        self.enrolled_at = creds.get("enrolled_at", "")
+    raw_retention_s: int = field(default_factory=lambda: int(os.getenv("RAW_RETENTION_S", "86400")))  # raw records: 1 day
+    # Limits (E7). Caps are enforced as data is written, so a flood cannot outrun the retention timer.
+    outbox_retention_s: int = field(default_factory=lambda: int(os.getenv("OUTBOX_RETENTION_S", "604800")))  # transfer record: 7 days
+    retention_interval_s: float = field(default_factory=lambda: float(os.getenv("RETENTION_INTERVAL_S", "300")))
+    raw_max_rows: int = field(default_factory=lambda: int(os.getenv("RAW_MAX_ROWS", "500000")))
+    outbox_max_pending: int = field(default_factory=lambda: int(os.getenv("OUTBOX_MAX_PENDING", "100000")))
+    max_db_bytes: int = field(default_factory=lambda: int(os.getenv("MAX_DB_BYTES", str(1 << 30))))  # live data, 1 GiB
+    max_line_chars: int = field(default_factory=lambda: int(os.getenv("MAX_LINE_CHARS", "65536")))
+    max_ingest_bytes: int = field(default_factory=lambda: int(os.getenv("MAX_INGEST_BYTES", str(8 << 20))))  # one request, 8 MiB

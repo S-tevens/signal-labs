@@ -49,6 +49,14 @@ class Pipeline:
         line = line.strip()
         if not line:
             return {"status": "empty"}
+        if len(line) > self.cfg.max_line_chars:
+            # Never parse, redact or aggregate an enormous line: it is a flood or an attack, and the regexes would run
+            # over megabytes. Keep a short marker so the operator can see it happened.
+            self.counters["received"] += 1
+            self.counters["oversize"] += 1
+            marker = f"{line[:512]} ...[line of {len(line)} characters dropped: over the {self.cfg.max_line_chars} limit]"
+            raw_id = self.store.add_raw(marker, [])
+            return {"status": "dropped_oversize", "raw_id": raw_id}
         return self.process_record(parse_line(line), line)
 
     def process_record(self, record: dict, line: str) -> dict:
@@ -114,6 +122,10 @@ class Pipeline:
         else:
             body["event"] = {"category": "log_event", "severity": "info", "count": w.n, "summary": SUMMARY["log_event"]}
 
+        return self._queue(body, w.raw_ids, w.rules)
+
+    def _queue(self, body: dict, raw_ids: list[int], rules) -> int:
+        """Schema check, then the customer's policy, then the outbox. Every payload goes through here."""
         try:
             checked = Payload(**body).model_dump(mode="json", exclude_none=True)
         except ValidationError:
@@ -123,6 +135,23 @@ class Pipeline:
         if decision.blocked:
             self.counters["blocked_by_policy"] += 1
             return 0
-        self.store.enqueue(decision.payload, w.raw_ids, sorted(w.rules))
+        self.store.enqueue(decision.payload, raw_ids, sorted(rules))
         self.counters["payloads"] += 1
         return 1
+
+    def emit_collector_event(self, category: str, severity: str, count: int, summary: str) -> bool:
+        """The collector reporting on itself, for example that it had to drop data. Same gates as any payload."""
+        body = {
+            "payload_id": str(uuid.uuid4()),
+            "tenant_ref": self.cfg.tenant_ref,
+            "collector_id": self.cfg.collector_id,
+            "source_id": pseudonym(self.cfg.host_label, self.cfg.pseudo_secret),
+            "region": self.cfg.region,
+            "event_ts_utc": datetime.now(timezone.utc),
+            "source_tz": self.cfg.source_tz,
+            "window_s": self.cfg.window_s,
+            "health_state": "Good",
+            "collector_version": COLLECTOR_VERSION,
+            "event": {"category": category, "severity": severity, "count": max(1, min(int(count), 1_000_000)), "summary": summary},
+        }
+        return bool(self._queue(body, [], []))
