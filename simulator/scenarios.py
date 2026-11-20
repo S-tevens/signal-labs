@@ -22,9 +22,12 @@ import hashlib
 import hmac
 import json
 import os
+import signal
 import ssl
+import subprocess
 import time
 import uuid
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from urllib import error, request
 
@@ -267,6 +270,47 @@ def remediation():
     print("  ", json.dumps(res, indent=2) if isinstance(res, dict) else res)
 
 
+def _lb_status():
+    status, body = _call(f"{SAAS}/_lb/status")
+    return body if status == 200 and isinstance(body, dict) else None
+
+
+def _print_lb(label):
+    lb = _lb_status()
+    if lb is None:
+        print(f"  {label}: no failover proxy at {SAAS} (started with -NoProxy?)")
+        return False
+    ups = ", ".join(f"{u['url'].rsplit(':', 1)[1]}={'up' if u['healthy'] else 'DOWN'}({u['requests']} req)" for u in lb["upstreams"])
+    print(f"  {label}: {ups} | failovers={lb['failovers']}")
+    return True
+
+
+def failover():
+    expect("replica 1 is killed mid-stream; the proxy fails over to replica 2; the collector loses and duplicates nothing")
+    pids_file = Path(__file__).resolve().parents[1] / "data" / "run.pids.json"
+    try:
+        procs = json.loads(pids_file.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        print("  cannot read data/run.pids.json: start the stack with .\\scripts\\run-local.ps1")
+        return
+    target = next((p for p in procs if p["name"] == "saas-1"), None)
+    if target is None or not _print_lb("before"):
+        print("  needs the stack from run-local.ps1 with the failover proxy (not -NoProxy)")
+        return
+    print(f"  killing saas-1 (pid {target['pid']}) while data is flowing ...")
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(target["pid"]), "/T", "/F"], capture_output=True)
+    else:
+        os.kill(target["pid"], signal.SIGTERM)
+    time.sleep(6)
+    _print_lb("6 s after the kill")
+    print("  healthz through the proxy:", _call(f"{SAAS}/healthz")[1])
+    time.sleep(10)
+    _print_lb("16 s after the kill")
+    reconcile()
+    print("  Restore replica 1 with: .\\scripts\\run-local.ps1 -Restart   (the database is kept)")
+
+
 def tls():
     expect("plain HTTP is refused; HTTPS with our CA works; any other CA is rejected; a tampered body is a 401")
     if not SAAS.startswith("https://"):
@@ -300,6 +344,7 @@ def tls():
 
 
 SCENARIOS = {
+    "failover": failover,
     "tls": tls,
     "secret": secret,
     "outage": outage,

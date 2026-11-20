@@ -126,6 +126,36 @@ class LocalStore:
                 )
             self._db.commit()
 
+    def egress_one(self, payload_id: str) -> dict | None:
+        """One payload exactly as queued, with the raw record ids and redactions behind it."""
+        with self._lock:
+            r = self._db.execute(
+                "SELECT payload_id, raw_id, raw_ids, body, redactions, status, attempts, created_at, sent_at "
+                "FROM outbox WHERE payload_id=?",
+                (payload_id,),
+            ).fetchone()
+        if r is None:
+            return None
+        return {
+            "payload_id": r["payload_id"],
+            "raw_ids": json.loads(r["raw_ids"]),
+            "status": r["status"],
+            "attempts": r["attempts"],
+            "created_at": r["created_at"],
+            "sent_at": r["sent_at"],
+            "redactions_applied": json.loads(r["redactions"]),
+            "payload": json.loads(r["body"]),
+        }
+
+    def raw_by_ids(self, ids: list[int]) -> list[dict]:
+        """Raw records by id (local only). Records past retention are simply absent."""
+        if not ids:
+            return []
+        marks = ",".join("?" for _ in ids)
+        with self._lock:
+            rows = self._db.execute(f"SELECT * FROM raw WHERE id IN ({marks}) ORDER BY id", list(ids)).fetchall()
+        return [{**dict(r), "redactions": json.loads(r["redactions"])} for r in rows]
+
     def depth(self) -> int:
         with self._lock:
             return int(self._db.execute("SELECT COUNT(*) FROM outbox WHERE status='pending'").fetchone()[0])

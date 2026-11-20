@@ -39,6 +39,9 @@ class Config:
     service_checks: str = field(default_factory=lambda: os.getenv("SERVICE_CHECKS", ""))  # "name=host:port,..."
     disk_paths: str = field(default_factory=lambda: os.getenv("DISK_PATHS", ""))  # default: the system drive or /
     source_tz: str = field(default_factory=lambda: os.getenv("SOURCE_TZ", "UTC"))  # IANA name, e.g. Asia/Kolkata
+    # The /local/* views show raw records with secrets. They answer only requests from this machine unless
+    # this is set (then put your own authentication in front; never expose them to the internet).
+    local_allow_remote: bool = field(default_factory=lambda: os.getenv("LOCAL_ALLOW_REMOTE", "0") == "1")
     # Transport security (E3).
     saas_ca_file: str = field(default_factory=lambda: os.getenv("SAAS_CA_FILE", ""))  # CA that signed the SaaS cert
     require_tls: bool = field(default_factory=lambda: os.getenv("REQUIRE_TLS", "0") == "1")

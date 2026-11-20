@@ -36,6 +36,27 @@ def redact(text: str, rules: "list[str] | None" = None) -> tuple[str, list[str]]
     return text, fired
 
 
+def find_spans(text: str, rules: "list[str] | None" = None) -> list[dict]:
+    """Where in `text` each scrubbing rule matched, as non-overlapping {start, end, rule} spans.
+
+    The local egress panel uses this to highlight what was sensitive in a raw record. Overlaps (an IP inside a
+    password value, say) are merged into one span labelled with the rule that matched first.
+    """
+    raw: list[dict] = []
+    for name, pattern in PATTERNS:
+        if rules is not None and name not in rules:
+            continue
+        raw.extend({"start": m.start(), "end": m.end(), "rule": name} for m in pattern.finditer(text))
+    raw.sort(key=lambda s: (s["start"], -(s["end"] - s["start"])))
+    merged: list[dict] = []
+    for span in raw:
+        if merged and span["start"] < merged[-1]["end"]:
+            merged[-1]["end"] = max(merged[-1]["end"], span["end"])
+        else:
+            merged.append(dict(span))
+    return merged
+
+
 def pseudonym(value: str, secret: str) -> str:
     """Stable, non-reversible source id: HMAC with a secret that never leaves the collector."""
     digest = hmac.new(secret.encode(), value.encode(), hashlib.sha256).hexdigest()

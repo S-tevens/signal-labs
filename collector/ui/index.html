@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Signal Labs · Local egress proof</title>
+    <link rel="stylesheet" href="/local/ui/style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <h1>Local egress proof</h1>
+        <p class="sub">What stayed inside your environment, next to exactly what left it.</p>
+      </div>
+      <p class="local-badge" title="Served by the collector on this machine only">LOCAL VIEW · raw data visible</p>
+    </header>
+
+    <p class="banner" id="notice">
+      This page shows raw records, including secrets, so it is served only to this machine. Never proxy it through
+      the SaaS or expose it outside the customer network.
+    </p>
+    <p class="banner error" id="error" hidden></p>
+
+    <main class="layout">
+      <aside class="list-pane" aria-label="Payloads">
+        <div class="controls">
+          <label><input type="checkbox" id="only-secrets" checked /> Only records with credentials or personal data</label>
+          <label><input type="checkbox" id="auto" checked /> Refresh every 3 s</label>
+          <button type="button" id="refresh">Refresh now</button>
+          <p class="status" id="status" role="status"></p>
+        </div>
+        <ul id="list" class="list"></ul>
+      </aside>
+
+      <section class="detail-pane" id="detail" aria-live="polite">
+        <p class="placeholder">Select a payload to compare the raw records with what was sent.</p>
+      </section>
+    </main>
+
+    <script src="/local/ui/app.js"></script>
+  </body>
+</html>

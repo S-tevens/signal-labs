@@ -23,7 +23,8 @@ param(
   [switch]$Restart,
   [switch]$Status,
   [switch]$Tls,               # HTTPS between collector and SaaS, with a private dev CA (needs: pip install cryptography)
-  [switch]$NoHostTelemetry    # do not read this machine's CPU, memory, disk, bandwidth or probe the network
+  [switch]$NoHostTelemetry,   # do not read this machine's CPU, memory, disk, bandwidth or probe the network
+  [switch]$NoProxy            # send straight to replica 1 instead of through the failover proxy (port 8080)
 )
 
 # Windows PowerShell 5.1 turns any stderr text from a native command into a hard error under "Stop",
@@ -129,8 +130,9 @@ if (-not $env:SAAS_AUTH_JSON) {
   $env:SAAS_AUTH_JSON = '{"collectors":{"key-acme-1":{"tenant":"t-acme","region":"in","collector":"col-blr-01","secret":"dev-secret-acme"}},"dashboard":{"dash-acme":{"tenant":"t-acme","region":"in","role":"operator"}}}'
 }
 $scheme = "http"
-$tlsMarker = Join-Path $data "run.tls"
-Remove-Item $tlsMarker -Force -ErrorAction SilentlyContinue
+$envFile = Join-Path $data "run.env.json"   # how demo.ps1 finds the SaaS entry point and CA
+Remove-Item $envFile -Force -ErrorAction SilentlyContinue
+$proxyArgs = @()
 $tlsArgs = @()
 if ($Tls) {
   & $python -c "import cryptography" 2>&1 | Out-Null
@@ -142,15 +144,20 @@ if ($Tls) {
   $env:SAAS_CA_FILE = Join-Path $certs "ca.pem"
   $env:REQUIRE_TLS = "1"
   $env:NODE_EXTRA_CA_CERTS = $env:SAAS_CA_FILE          # lets the dashboard's dev proxy trust the dev CA
-  $env:SAAS_PROXY_TARGET = "https://127.0.0.1:8000"
-  Set-Content $tlsMarker $env:SAAS_CA_FILE -Encoding ascii  # demo.ps1 reads this to talk HTTPS
+  $proxyArgs = @("--ca", $env:SAAS_CA_FILE, "--tls-cert", (Join-Path $certs "server.pem"), "--tls-key", (Join-Path $certs "server.key"))
 } else {
   Remove-Item Env:SAAS_CA_FILE, Env:REQUIRE_TLS -ErrorAction SilentlyContinue
 }
-$saasUrl = if ($env:SAAS_URL -and -not $Tls) { $env:SAAS_URL } else { "${scheme}://127.0.0.1:8000" }
+# Everything (collector, dashboard, demo scenarios) enters the SaaS through the failover proxy unless -NoProxy.
+$entryPort = if ($NoProxy) { 8000 } else { 8080 }
+$saasUrl = "${scheme}://127.0.0.1:$entryPort"
+$env:SAAS_PROXY_TARGET = $saasUrl           # where the dashboard's dev server forwards /api
+@{ saas_url = $saasUrl; ca = $env:SAAS_CA_FILE } | ConvertTo-Json | Set-Content $envFile -Encoding ascii
 $env:HOST_TELEMETRY = if ($NoHostTelemetry) { "0" } else { "1" }
 # Services worth watching on this machine, reported as service_up (override with $env:SERVICE_CHECKS).
-if (-not $env:SERVICE_CHECKS) { $env:SERVICE_CHECKS = "saas-1=127.0.0.1:8000,saas-2=127.0.0.1:8001,postgres=127.0.0.1:$pgPort" }
+if (-not $env:SERVICE_CHECKS) {
+  $env:SERVICE_CHECKS = "saas-1=127.0.0.1:8000,saas-2=127.0.0.1:8001,postgres=127.0.0.1:$pgPort" + $(if (-not $NoProxy) { ",lb=127.0.0.1:8080" } else { "" })
+}
 
 $started = New-Object System.Collections.ArrayList
 function Start-Svc($name, $file, $argList, $url, $workdir = $root) {
@@ -164,6 +171,13 @@ function Start-Svc($name, $file, $argList, $url, $workdir = $root) {
 Write-Host "Starting services ..."
 $env:REPLICA_ID = "1"; Start-Svc "saas-1" $python (@("-m", "uvicorn", "saas.main:app", "--port", "8000") + $tlsArgs) "${scheme}://127.0.0.1:8000/healthz"
 $env:REPLICA_ID = "2"; Start-Svc "saas-2" $python (@("-m", "uvicorn", "saas.main:app", "--port", "8001") + $tlsArgs) "${scheme}://127.0.0.1:8001/healthz"
+
+if (-not $NoProxy) {
+  # Round-robin with failover; forwards the exact request bytes, so the collector's signatures still verify.
+  $lbArgs = @("scripts\lb.py", "--listen", "127.0.0.1:8080", "--upstream", "${scheme}://127.0.0.1:8000", "--upstream", "${scheme}://127.0.0.1:8001") + $proxyArgs
+  $lbHealth = if ($Tls) { "https://127.0.0.1:8080/_lb/status" } else { "http://127.0.0.1:8080/_lb/status" }
+  Start-Svc "lb" $python $lbArgs $lbHealth
+}
 
 $env:SAAS_URL = $saasUrl
 $env:DATA_DIR = (Join-Path $data "collector")
@@ -197,8 +211,9 @@ Write-Host ""
 if ($ok) { Write-Host "Stack is up." -ForegroundColor Green } else { Write-Host "Some services did not start." -ForegroundColor Red }
 @(
   @{ n = "Dashboard"; u = "http://127.0.0.1:5173" },
+  @{ n = "SaaS entry point"; u = "$saasUrl" + $(if ($NoProxy) { "  (replica 1 directly, no failover)" } else { "  (failover proxy; status at /_lb/status)" }) },
   @{ n = "SaaS replica 1 / 2"; u = "${scheme}://127.0.0.1:8000 and ${scheme}://127.0.0.1:8001" + $(if ($Tls) { "  (TLS, CA: data\certs\ca.pem)" } else { "  (plain HTTP)" }) },
-  @{ n = "Collector"; u = "http://127.0.0.1:8101  (/local/raw, /local/egress, /local/policy, /local/pipeline, /local/host)" },
+  @{ n = "Collector"; u = "http://127.0.0.1:8101  (local only: /local/ui, /local/raw, /local/egress, /local/policy, /local/host)" },
   @{ n = "Logs"; u = "data\logs" }
 ) | ForEach-Object { "{0,-20} {1}" -f $_.n, $_.u }
 Write-Host ""
