@@ -66,3 +66,12 @@ details { margin-top: 8px; } summary { cursor: pointer; color: var(--muted); fon
 .checks-list { list-style: none; margin: 8px 0 0; padding: 0; }
 .checks-list .good { color: var(--good); }
 .checks-list .bad { color: var(--bad); font-weight: 600; }
+
+/* Keyboard focus is always visible, numbers line up, and motion is never forced. */
+button:focus-visible, summary:focus-visible, input:focus-visible, .item:focus-visible { outline: 2px solid var(--sent); outline-offset: 2px; }
+.mono, .fields td, .strip-text, .status { font-variant-numeric: tabular-nums; }
+.fields th { font-weight: 600; color: var(--muted); }
+.panel { padding-block: 2px; }
+h2 { letter-spacing: -.005em; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+@media (max-width: 600px) { .top { flex-wrap: wrap; } .strip { flex-wrap: wrap; } .layout, .stages, .strip { margin-inline: 8px; padding-inline: 8px; } }

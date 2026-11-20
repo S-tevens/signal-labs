@@ -15,8 +15,14 @@ if (Test-Path $envFile) { $run = Get-Content $envFile -Raw | ConvertFrom-Json; i
 $pidFile = Join-Path $root "data\run.pids.json"
 
 if ($Restart) {
-  if (Test-Path $pidFile) { Remove-Item $pidFile -Force }  # a stale file from an interrupted start can block a restart
+  # Stop what the pid file knows about first. Only then free the stack's ports, in case a start was interrupted and
+  # the pid file is stale or empty (deleting it first would leave the old processes running and the new ones unable
+  # to bind), and finally drop the file.
   & (Join-Path $PSScriptRoot "stop-local.ps1") 2>&1 | Out-Null
+  Get-NetTCPConnection -State Listen -LocalPort 8000, 8001, 8080, 8101, 5173 -ErrorAction SilentlyContinue |
+    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+  Start-Sleep -Seconds 2
+  if (Test-Path $pidFile) { Remove-Item $pidFile -Force }
   $opts = @{ Restart = $true; NoSimulator = $true }   # a hashtable splats as named switches; an array would be positional
   if ($ca) { $opts["Tls"] = $true }
   & (Join-Path $PSScriptRoot "run-local.ps1") @opts 2>&1 | Out-Null

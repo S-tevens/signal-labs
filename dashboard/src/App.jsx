@@ -260,7 +260,7 @@ function Fleet({ rows, onSelect, onIncident, range }) {
     <>
       <div className="fleet-hero-grid">
         <section className="panel fleet-status-hero" aria-label="Collector health summary">
-          <div className="hero-card-heading"><div><span className="card-kicker">YOUR INFRASTRUCTURE</span><h2>Collector status</h2></div><span className="light-pill">{rows.length} collectors</span></div>
+          <div className="hero-card-heading"><div><span className="card-kicker">Your infrastructure</span><h2>Collector status</h2></div><span className="light-pill">{rows.length} collectors</span></div>
           <div className="orb-area"><div className="orb-glow" aria-hidden="true"><span className="orb-needle one"/><span className="orb-needle two"/><span className="orb-needle three"/><span className="orb-center"/></div></div>
           <div className="hero-total">{String(rows.length).padStart(2, "0")}</div>
           <p className="hero-caption">Monitored collectors in {rows.some(c => c.region === 'eu') && rows.some(c => c.region === 'in') ? 'all demo regions' : rows[0]?.region === 'eu' ? 'Europe' : 'India'} · {online} reporting</p>
@@ -513,7 +513,7 @@ function Fleet({ rows, onSelect, onIncident, range }) {
             </thead>
             <tbody>
               {filtered.map((c) => (
-                <tr key={c.id} onClick={() => onSelect(c)}>
+                <tr key={c.id} onClick={() => onSelect(c)} className={c.online === false ? "row-offline" : undefined}>
                   <td>
                     <button
                       className="collector-name"
@@ -834,21 +834,21 @@ function Proof() {
         <PanelTitle icon={Clock3} title="How evidence should be measured" />
         <div>
           <article>
-            <span className="eyebrow">DASHBOARD LATENCY</span>
+            <span className="eyebrow">Dashboard latency</span>
             <p>
               Dashboard render time minus source event time. Report the 95th
               percentile over a stated sample window.
             </p>
           </article>
           <article>
-            <span className="eyebrow">ALERT & OFFLINE TIME</span>
+            <span className="eyebrow">Alert and offline time</span>
             <p>
               Compare the injected breach with alert creation, and the last
               heartbeat with the transition to Poor.
             </p>
           </article>
           <article>
-            <span className="eyebrow">DELIVERY INTEGRITY</span>
+            <span className="eyebrow">Delivery integrity</span>
             <p>
               Compare sent and received unique IDs. Retries can repeat on the
               wire; each payload should be stored once.
@@ -1111,7 +1111,7 @@ function Dashboard() {
         <main>
           <div className="page-heading">
             <div>
-              {page === "egress" && <div className="eyebrow">LOCAL COLLECTOR · SYNTHETIC RECORDS</div>}
+              {page === "egress" && <div className="eyebrow">Local collector, synthetic records</div>}
               <h1>
                 {pages[page][0]}
 
@@ -1296,7 +1296,7 @@ function Detail({ detail, close }) {
       >
         <div className="drawer-top">
           <span className="eyebrow">
-            {type === "collector" ? "COLLECTOR DETAILS" : "EXPLAINABLE AIOPS"} ·{" "}
+            {type === "collector" ? "Collector details" : "Explainable AIOps"} ·{" "}
             {mode === "live" ? "LIVE" : "DEMO"}
           </span>
           <button
