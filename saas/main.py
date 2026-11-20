@@ -107,6 +107,22 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
         who=auth.dashboard(request)
         with store.connect(who.tenant) as db:
             refresh(db,config); return [{**{k:v for k,v in r.items() if k!="tenant_id"},'collector_id':r['id'],'last_seen_utc':utc(r['last_seen']),'resources':json.loads(r['resources']),'online':time.time()-r['last_seen']<config['offline_after_s']} for r in db.execute('SELECT * FROM fleet ORDER BY id')]
+    @app.get('/v1/session')
+    def session(request:Request):
+        who=auth.dashboard(request)
+        return {'tenant_id':who.tenant,'region':who.region,'role':who.role}
+    @app.get('/v1/health/thresholds')
+    def health_thresholds(request:Request):
+        auth.dashboard(request)
+        return {k:config[k] for k in ('metrics','stale_after_s','offline_after_s','baseline_min','baseline_window','anomaly_persistence_windows') if k in config}
+    @app.get('/v1/system/status')
+    def system_status(request:Request):
+        who=auth.dashboard(request)
+        with store.connect(who.tenant) as db:
+            collectors=db.execute('SELECT COUNT(*) AS n FROM fleet').fetchone()['n']
+            payloads=db.execute('SELECT COUNT(*) AS n FROM payloads').fetchone()['n']
+            incidents=db.execute('SELECT COUNT(*) AS n FROM incidents').fetchone()['n']
+        return {'tenant_id':who.tenant,'region':region,'replica_id':replica_id,'database':'reachable','collectors':collectors,'payloads':payloads,'incidents':incidents}
     @app.get('/v1/metrics')
     def metrics(request:Request,source:str|None=None,name:str|None=None,limit:int=1000):
         who=auth.dashboard(request); q='SELECT data,received FROM payloads WHERE metric IS NOT NULL'; args=[]

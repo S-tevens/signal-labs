@@ -1,19 +1,32 @@
 import time,json
 from .store import dump,utc,epoch,count,state,audit
 from .aiops import canonical,detect
-from .health import metric_state,worse
+from .health import metric_state,worse,RANK
 from .correlation import correlate
 
 def refresh(db,config,now=None):
     now=time.time() if now is None else now
     for row in db.execute('SELECT * FROM fleet').fetchall():
         age=max(0,now-row['last_seen']); target=row['report_state']; reason='Latest telemetry health'
-        signals=db.execute('SELECT state,ts FROM health_signals WHERE collector=?',(row['id'],)).fetchall()
-        recent=[s['state'] for s in signals if now-epoch(s['ts'])<config['offline_after_s']]
-        if signals: target=worse(*recent) if recent else 'Fair'; reason='Worst recent signal' if recent else 'Telemetry stale'
-        if age>=config['offline_after_s'] and row['reason']!='Collector heartbeat expired': db.execute('INSERT INTO offline_measurements(collector,delay,ts) VALUES(?,?,?)',(row['id'],age,utc(now)))
-        if age>=config['offline_after_s']: target,reason='Poor','Collector heartbeat expired'
-        elif age>=config['stale_after_s']: target,reason=worse(target,'Fair'),'Collector heartbeat stale'
+        signals=db.execute('SELECT state,ts,signal,source FROM health_signals WHERE collector=?',(row['id'],)).fetchall()
+        recent=[s for s in signals if now-epoch(s['ts'])<config['offline_after_s']]
+        if signals:
+            if recent:
+                worst=max(recent,key=lambda s:(RANK[s['state']],s['ts']))
+                target=worst['state']
+                reason=f"{worst['signal']} from {worst['source']} reported {target} at {worst['ts']}"
+                observation=db.execute('SELECT data FROM payloads WHERE collector=? AND source=? AND ts=? AND metric=? ORDER BY id LIMIT 1',(row['id'],worst['source'],worst['ts'],worst['signal'])).fetchone()
+                if observation:
+                    payload=json.loads(observation['data']); metric=payload.get('metric')
+                    if metric and canonical(metric['name'])==worst['signal']:
+                        reason+=f"; value {metric['value']} {metric['unit']}"
+                        rule=config['metrics'].get(worst['signal'],{})
+                        if target.lower() in rule and metric_state(metric,config)==target:
+                            reason+=f" ({target} threshold {'<=' if rule.get('inverse') else '>='} {rule[target.lower()]})"
+            else: target,reason='Fair','Telemetry stale: no recent signals'
+        if age>=config['offline_after_s'] and not row['reason'].startswith('Collector heartbeat expired'): db.execute('INSERT INTO offline_measurements(collector,delay,ts) VALUES(?,?,?)',(row['id'],age,utc(now)))
+        if age>=config['offline_after_s']: target,reason='Poor',f"Collector heartbeat expired (last seen {int(age)}s ago; offline after {config['offline_after_s']}s)"
+        elif age>=config['stale_after_s']: target,reason=worse(target,'Fair'),f"Collector heartbeat stale (last seen {int(age)}s ago; stale after {config['stale_after_s']}s)"
         state(db,row['id'],target,reason,now)
 
 def touch(db,p,reported,now):

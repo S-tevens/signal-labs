@@ -39,10 +39,20 @@ export function ObjectExplorer() {
     <ObjectDetails selected={selected} onSelect={setSelected}/>
   </section>;
 }
+function Thresholds() {
+  const [data,setData] = useState(null), [error,setError] = useState('');
+  useEffect(() => {
+    if (!LIVE) return;
+    const ctrl=new AbortController();
+    request('/v1/health/thresholds',{signal:ctrl.signal}).then(setData).catch(e=>{if(e.name !== 'AbortError') setError(e.message);});
+    return () => ctrl.abort();
+  }, []);
+  return <div className="health-thresholds"><h3>Configured health thresholds</h3>{!LIVE ? <Message>Connect the SaaS to view its thresholds.</Message> : error ? <Message>Thresholds unavailable: {error}</Message> : !data ? <Message>Loading thresholds…</Message> : <><p>Heartbeat is stale after {data.stale_after_s}s and offline after {data.offline_after_s}s. Thresholds use the units supplied by each metric.</p><div className="threshold-grid">{Object.entries(data.metrics).filter(([,r]) => r.poor !== undefined).map(([name,r]) => <div key={name}><strong>{name.replaceAll('_',' ')}</strong><span>Good {r.inverse ? '<' : '≥'} {r.good} · Fair {r.inverse ? '≤' : '≥'} {r.fair} · Poor {r.inverse ? '≤' : '≥'} {r.poor}</span></div>)}</div><p>Excellent means the value is better than the Good threshold. Other signals and heartbeat age can also affect health.</p></>}</div>;
+}
 export function HealthHistory() {
   const [rows, setRows] = useState([]), [error, setError] = useState(''), [loading, setLoading] = useState(LIVE);
   useEffect(() => { if (!LIVE) return; const ctrl=new AbortController(); request('/v1/health/history',{signal:ctrl.signal}).then(setRows).catch(e => { if(e.name!=='AbortError') setError(e.message); }).finally(() => { if(!ctrl.signal.aborted) setLoading(false); }); return () => ctrl.abort(); }, []);
-  return <section className="panel platform-panel"><h2>Health history</h2><p>Collector state changes and reasons, recorded in UTC.</p>{!LIVE ? <Message>Connect the SaaS to view recorded state changes.</Message> : loading ? <Message>Loading history…</Message> : error ? <Message>History could not be loaded: {error}</Message> : rows.length ? <div className="platform-object-list">{rows.map(r => <div className="platform-history" key={r.id}><strong>{r.collector} · {r.state}</strong><span>{r.ts} · {r.reason}</span></div>)}</div> : <Message>No health transitions recorded.</Message>}</section>;
+  return <section className="panel platform-panel"><h2>Health history</h2><p>Collector state changes and reasons, recorded in UTC.</p><Thresholds/>{!LIVE ? <Message>Connect the SaaS to view recorded state changes.</Message> : loading ? <Message>Loading history…</Message> : error ? <Message>History could not be loaded: {error}</Message> : rows.length ? <div className="platform-object-list">{rows.map(r => <div className="platform-history" key={r.id}><strong>{r.collector} · {r.state}</strong><span>{r.ts} · {r.reason}</span></div>)}</div> : <Message>No health transitions recorded.</Message>}</section>;
 }
 export function IncidentWorkspace({ incidentId, mode }) {
   const [lineage, setLineage] = useState(null), [actions, setActions] = useState([]), [catalog, setCatalog] = useState({}), [error, setError] = useState(''), [selected, setSelected] = useState(null), [type, setType] = useState('restart_service'), [service, setService] = useState(''), [credential, setCredential] = useState(''), [replicas, setReplicas] = useState(2), [busy, setBusy] = useState(false);
