@@ -92,6 +92,31 @@ async function toggleHold() {
   await loadList();
 }
 
+// ---------- pipeline stages ----------
+const pairs = (obj) => Object.entries(obj || {}).map(([k, v]) => k + " " + v).join(" · ") || "none";
+
+async function loadStages() {
+  try {
+    const s = await getJSON("/local/stages");
+    const o = s.outbox_now || {};
+    const rows = [
+      ["Received", s.received, pairs(s.by_format)],
+      ["Redacted (records that matched a rule)", Object.values(s.redacted_records_by_rule).reduce((a, b) => a + b, 0), pairs(s.redacted_records_by_rule)],
+      ["Dropped", s.dropped.oversize_line + s.dropped.unmapped_or_invalid_record, "oversize line " + s.dropped.oversize_line + " · unmapped or invalid " + s.dropped.unmapped_or_invalid_record],
+      ["Aggregated into windows", s.aggregated_into_windows, s.windows_closed + " windows closed"],
+      ["Queued to send", s.queued, "failed schema " + s.rejected_before_queue.failed_schema + " · blocked by policy " + s.rejected_before_queue.blocked_by_policy + " · collector events " + s.collector_events],
+      ["In the outbox now", Object.values(o).reduce((a, b) => a + b, 0), pairs(o)],
+    ];
+    const checks = s.checks.map((c) => h("li", { class: c.ok ? "good" : "bad", text: (c.ok ? "✔ " : "✘ ") + c.name + ": " + c.left + " vs " + c.right }));
+    $("#stages-body").replaceChildren(
+      h("table", { class: "fields" }, h("tbody", {}, ...rows.map((r) => h("tr", {}, h("th", { text: r[0] }), h("td", { class: "mono", text: String(r[1]) }), h("td", { text: r[2] }))))),
+      h("ul", { class: "checks-list" }, ...checks),
+    );
+  } catch (err) {
+    $("#stages-body").textContent = "Cannot read the pipeline stages: " + err.message;
+  }
+}
+
 // ---------- list ----------
 async function loadList() {
   try {
@@ -247,6 +272,8 @@ function schedule() {
   if ($("#auto").checked) state.timer = setInterval(loadList, 3000);
   clearInterval(state.stripTimer);
   state.stripTimer = setInterval(loadStrip, 1000);
+  clearInterval(state.stagesTimer);
+  state.stagesTimer = setInterval(loadStages, 3000);
 }
 
 $("#refresh").addEventListener("click", loadList);
@@ -254,4 +281,5 @@ $("#hold-toggle").addEventListener("click", toggleHold);
 $("#only-secrets").addEventListener("change", () => { state.selected = null; loadList(); });
 $("#auto").addEventListener("change", schedule);
 loadList();
+loadStages();
 schedule();

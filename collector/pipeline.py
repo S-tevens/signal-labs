@@ -46,6 +46,31 @@ class Pipeline:
         self.counters: Counter[str] = Counter()
 
     # ---- intake ----
+    def stages(self) -> dict:
+        """Counts per stage since this process started, and whether they add up. Every received record must end in
+        exactly one of: dropped, dropped as oversize, or aggregated. Every closed window and collector event must end
+        as exactly one of: queued, invalid, or blocked by policy."""
+        c = self.counters
+        prefix = lambda p: {k[len(p):]: v for k, v in sorted(c.items()) if k.startswith(p)}
+        ends = c["oversize"] + c["dropped"] + c["aggregated"]
+        outputs = c["payloads"] + c["invalid"] + c["blocked_by_policy"]
+        inputs = c["windows"] + c["collector_events"]
+        return {
+            "received": c["received"],
+            "by_format": prefix("format:"),
+            "redacted_records_by_rule": prefix("redacted:"),
+            "dropped": {"oversize_line": c["oversize"], "unmapped_or_invalid_record": c["dropped"]},
+            "aggregated_into_windows": c["aggregated"],
+            "windows_closed": c["windows"],
+            "collector_events": c["collector_events"],
+            "rejected_before_queue": {"failed_schema": c["invalid"], "blocked_by_policy": c["blocked_by_policy"]},
+            "queued": c["payloads"],
+            "checks": [
+                {"name": "received = oversize + dropped + aggregated", "left": c["received"], "right": ends, "ok": c["received"] == ends},
+                {"name": "windows + collector events = queued + failed schema + blocked by policy", "left": inputs, "right": outputs, "ok": inputs == outputs},
+            ],
+        }
+
     def process(self, line: str) -> dict:
         """Text sent to /ingest, in any supported format."""
         line = line.strip()
@@ -90,6 +115,8 @@ class Pipeline:
         self.counters[f"format:{fmt}"] += 1
         _, rules = redact(line, self.policy.redaction_rules)  # which rules fire; the raw line itself stays local
         raw_id = self.store.add_raw(line, rules)
+        for rule in set(rules):
+            self.counters[f"redacted:{rule}"] += 1
 
         source = pseudonym(str(record.get("host") or "unknown"), self.cfg.pseudo_secret)
         ts = _event_epoch(record)
@@ -105,8 +132,10 @@ class Pipeline:
             if name not in METRIC_NAMES or value is None or value != value:  # unknown name, bad number or NaN
                 self.counters["dropped"] += 1
                 return {"status": "dropped", "raw_id": raw_id, "format": fmt}
+            self.counters["aggregated"] += 1
             ready = self.agg.add_metric(source, name, value, ts, tz, raw_id, rules)
         elif kind == "log":
+            self.counters["aggregated"] += 1
             ready = self.agg.add_log(source, is_auth_failure(str(record.get("message") or "")), ts, tz, raw_id, rules)
         else:
             self.counters["dropped"] += 1
@@ -180,4 +209,5 @@ class Pipeline:
             "collector_version": COLLECTOR_VERSION,
             "event": {"category": category, "severity": severity, "count": max(1, min(int(count), 1_000_000)), "summary": summary},
         }
+        self.counters["collector_events"] += 1
         return bool(self._queue(body, [], []))
