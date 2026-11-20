@@ -707,7 +707,7 @@ function Incidents({ region, onSelect }) {
 }
 
 function Proof() {
-  const { mode, proof } = useData();
+  const { mode, proof, updatedAt } = useData();
   const live = mode === "live";
   const fmt = (v, digits = 1) => (v == null ? "—" : Number(v).toFixed(digits));
   const m = live
@@ -746,6 +746,7 @@ function Proof() {
             : "These are illustrative demo results. Connect timestamped stream evidence before presenting performance claims."}
         </span>
       </div>
+      {live && <p className="proof-sample-info">Dashboard samples: {proof?.dashboard_samples ?? 0} · Window: {proof?.window_s != null ? `${proof.window_s} s` : "Unavailable"} · Last updated: {updatedAt ? new Date(updatedAt).toLocaleTimeString() : "Unavailable"}</p>}
       <div className="proof-grid">
         {tests.map((t) => {
           const has = t.value != null;
@@ -1008,9 +1009,10 @@ function Egress({ notify }) {
 }
 
 function Dashboard() {
-  const { collectors, incidents, cpuSeries, latencySeries, analyticsSeries, proof, mode, status, error, updatedAt, refresh } = useData();
+  const { collectors, incidents, cpuSeries, latencySeries, analyticsSeries, proof, session, mode, status, error, updatedAt, refresh } = useData();
   const [page, setPage] = useState(currentPage);
   const [region, setRegion] = useState("in");
+  useEffect(() => { if (mode === "live" && session?.region) setRegion(session.region); }, [mode, session?.region]);
   const [range, setRange] = useState("1h");
   const [detail, setDetail] = useState(null);
   const [toast, setToast] = useState("");
@@ -1094,7 +1096,7 @@ function Dashboard() {
           <div className="topbar-left">
             <a className="image-brand" href="#/fleet" aria-label="Signal Labs home"><img src="/signal-labs-transparent.png" alt="Signal Labs" /></a>
             <span className="header-divider" />
-            <div className="header-workspace"><span>Workspace</span><strong>Team Mirai</strong></div>
+            <div className="header-workspace"><span>{mode === "live" ? "Authenticated tenant" : "Workspace"}</span><strong>{mode === "live" ? (session?.tenant_id || "Unavailable") : "Team Mirai"}</strong></div>
             <span className="header-environment">Observability platform</span>
           </div>
           <div className="topbar-right">
@@ -1120,6 +1122,7 @@ function Dashboard() {
                   <select
                     value={region}
                     aria-label="Region"
+                    disabled={mode === "live"}
                     onChange={(e) => setRegion(e.target.value)}
                   >
                     <option value="in">India · IN</option>
@@ -1163,6 +1166,7 @@ function Dashboard() {
             {nav.map((n) => <a key={n.id} href={`#/${n.id}`} className={page === n.id ? 'active' : ''} aria-current={page === n.id ? 'page' : undefined}>{n.label}{n.id === 'incidents' && <span className="nav-count">{incidents.filter(i => region === 'all' || i.region === region).length}</span>}</a>)}
             <a className="nav-cta" href="#/incidents">Review incidents <span>{incidents.filter(i => region === 'all' || i.region === region).length}</span></a>
           </nav>
+          {mode === "live" && session && <p className="tenant-scope">Tenant: <strong>{session.tenant_id}</strong> · Region: {session.region.toUpperCase()} · To switch tenants, use a dashboard token for that tenant.</p>}
           {mode === "live" && status === "loading" && (
             <div className="notice">
               <RefreshCw size={18} />
@@ -1396,6 +1400,7 @@ export default function App() {
   const value = LIVE
     ? {
         mode: "live",
+        session: live.data?.session ?? null,
         collectors: live.data?.collectors ?? [],
         incidents: live.data?.incidents ?? [],
         cpuSeries: live.data?.cpuSeries ?? [],

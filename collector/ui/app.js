@@ -235,9 +235,19 @@ function renderDetail(d) {
       h("td", {}, h("span", { class: "chip mark-" + (d.markings[key] || "none"), text: d.markings[key] || "unlisted" })),
     ),
   );
+  const openReceived = h("button", { type: "button", text: "Open this payload on the dashboard" });
+  openReceived.addEventListener("click", () => {
+    try {
+      const target = new URL($("#dashboard-url").value);
+      if (!["http:", "https:"].includes(target.protocol) || target.username || target.password) throw new Error("Use an HTTP or HTTPS dashboard URL without credentials.");
+      target.hash = "/received?id=" + encodeURIComponent(d.payload.payload_id);
+      window.open(target.href, "_blank", "noopener,noreferrer");
+    } catch (err) { showError("Invalid dashboard URL: " + err.message); }
+  });
   const right = h("section", { class: "panel sent" },
     h("h2", { text: "Left the environment" }),
     h("p", { class: "sub" }, "The exact payload queued to the SaaS · status ", h("strong", { text: d.status }), " · " + d.attempts + " attempt(s)"),
+    openReceived,
     h("table", { class: "fields" }, h("tbody", {}, ...rows)),
     h("p", { class: "sub", text: d.status === "sent" ? "Sent at " + clock(d.sent_at) : d.status === "pending" ? "Not sent yet. It leaves only after release (or when the link is back)." : "Closed at " + clock(d.sent_at) }),
     h("p", { class: "sub" }, "SHA-256 of the exact bytes: ", h("code", { class: "mono", text: d.digest })),

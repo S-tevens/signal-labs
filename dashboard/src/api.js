@@ -56,7 +56,7 @@ function series(points, buckets = 29) {
     .map(([, b]) => round1(b.sum / b.n));
 }
 
-function mapCollectors(fleet, metricsByName) {
+function mapCollectors(fleet, metricsByName, sessionRegion) {
   // Latest reading per (collector, source, metric), then averaged across a collector's sources.
   const latest = new Map();
   const info = new Map();
@@ -82,7 +82,7 @@ function mapCollectors(fleet, metricsByName) {
       id,
       name: id,
       source: meta.source || "—",
-      region: meta.region || "in",
+      region: meta.region || sessionRegion,
       state: f.state,
       online: f.online !== false,
       cpu: fresh ? avg(id, "cpu_pct") : null,
@@ -137,15 +137,16 @@ function mapIncident(i, regionOf) {
 async function snapshot(signal) {
   const from = encodeURIComponent(new Date(Date.now() - WINDOW_MS).toISOString());
   const names = Object.keys(METRICS);
-  const [fleet, incidents, proof, ...metricRows] = await Promise.all([
+  const [fleet, incidents, proof, session, ...metricRows] = await Promise.all([
     request("/v1/fleet", { signal }),
     request("/v1/incidents", { signal }),
     request("/v1/proof?window_s=300", { signal }),
+    request("/v1/session", { signal }),
     ...names.map((n) => request(`/v1/metrics?name=${n}&from=${from}&limit=10000`, { signal })),
   ]);
   const metricsByName = Object.fromEntries(names.map((n, i) => [n, metricRows[i]]));
-  const collectors = mapCollectors(fleet, metricsByName);
-  const regionOf = (id) => collectors.find((c) => c.id === id)?.region || "in";
+  const collectors = mapCollectors(fleet, metricsByName, session.region);
+  const regionOf = (id) => collectors.find((c) => c.id === id)?.region || session.region;
   const newest = names
     .flatMap((n) => metricsByName[n])
     .sort((a, b) => (a.received_ts_utc < b.received_ts_utc ? 1 : -1))
@@ -161,6 +162,7 @@ async function snapshot(signal) {
       latency: series(metricsByName.latency_ms.filter((m) => region === "all" || m.region === region)),
     }])),
     proof,
+    session,
     newest,
   };
 }
@@ -173,29 +175,40 @@ export function useLiveData() {
     try {
       const data = await snapshot(signal);
       setState({ status: "ok", data, error: null, updatedAt: Date.now() });
-      // Tell the SaaS these payloads were rendered, so it can measure real dashboard latency.
-      requestAnimationFrame(() => {
-        for (const id of data.newest) {
-          if (acked.current.has(id)) continue;
-          acked.current.add(id);
-          request(`/v1/proof/render?payload_id=${encodeURIComponent(id)}`, { method: "POST" }).catch(() => { acked.current.delete(id); });
-        }
-      });
+
     } catch (e) {
       if (e.name === "AbortError") return;
       setState((s) => ({ ...s, status: "error", error: e.message }));
     }
   }, []);
 
+  // Acknowledge after React commits and the browser has had a paint opportunity.
+  // This is client-reported timing, not proof of a physical screen refresh.
+  useEffect(() => {
+    if (!LIVE || !state.data) return undefined;
+    let second;
+    const first=requestAnimationFrame(() => { second=requestAnimationFrame(() => {
+      for (const id of state.data.newest) {
+        if (acked.current.has(id)) continue;
+        acked.current.add(id);
+        request(`/v1/proof/render?payload_id=${encodeURIComponent(id)}`, {method:"POST"}).catch(() => acked.current.delete(id));
+      }
+    }); });
+    return () => { cancelAnimationFrame(first); if (second != null) cancelAnimationFrame(second); };
+  }, [state.data]);
+
   useEffect(() => {
     if (!LIVE) return undefined;
     const ctrl = new AbortController();
     let reconnectTimer;
-    let inFlight = false;
+    let inFlight = false, pending = false;
     const refresh = async () => {
-      if (inFlight || ctrl.signal.aborted) return;
+      if (ctrl.signal.aborted) return;
+      if (inFlight) { pending = true; return; }
       inFlight = true;
-      try { await load(ctrl.signal); } finally { inFlight = false; }
+      try {
+        do { pending = false; await load(ctrl.signal); } while (pending && !ctrl.signal.aborted);
+      } finally { inFlight = false; }
     };
     const connect = async () => {
       try {
