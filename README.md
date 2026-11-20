@@ -80,7 +80,7 @@ Run the whole stack with one command (Postgres, migration, two SaaS replicas, th
 
 ```
 .\scripts\run-local.ps1 -Tls
-.\scripts\demo.ps1 secret          # inject a live scenario; -List shows all 15
+.\scripts\demo.ps1 secret          # inject a live scenario; -List shows all 16
 .\scripts\stop-local.ps1
 ```
 

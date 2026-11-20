@@ -213,6 +213,65 @@ def hold():
     print("  RESULT:", "PASS" if ok else "FAIL")
 
 
+def tenants():
+    """Two tenants on one platform: isolation checks, then deliberately bad payloads, each with its reason."""
+    expect("each token sees only its own tenant; cross-tenant access is refused or 404; every bad payload is rejected with a reason")
+    G_KEY, G_SECRET, G_DASH = os.getenv("GLOBEX_KEY", "key-globex-1"), os.getenv("GLOBEX_SECRET", "dev-secret-globex"), os.getenv("GLOBEX_DASH", "dash-globex")
+    tag = uuid.uuid4().hex[:6]
+    results = []
+
+    def check(name, ok, detail=""):
+        results.append(ok)
+        print(f"  {'PASS' if ok else 'FAIL'}: {name}" + (f"  [{detail}]" if detail else ""))
+
+    def signed(path, payload, key, secret):
+        body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        return _call(f"{SAAS}{path}", body, {"X-Collector-Key": key, "X-Signature": sig, "Content-Type": "application/json"})
+
+    def metric(tenant, collector, pid=None, **over):
+        p = {"payload_id": pid or str(uuid.uuid4()), "tenant_ref": tenant, "collector_id": collector, "source_id": "src_" + tag.ljust(8, "0"),
+             "region": "in", "event_ts_utc": iso(time.time() - 10), "source_tz": "UTC", "window_s": 5,
+             "metric": {"name": "cpu_pct", "value": 30.0, "unit": "%"}, "health_state": "Excellent", "collector_version": "1.0.0"}
+        p.update(over)
+        return p
+
+    def get(path, token):
+        return _call(f"{SAAS}{path}", headers={"Authorization": f"Bearer {token}"})
+
+    acme_p, globex_p = metric("t-acme", "col-blr-01"), metric("t-globex", "col-globex-01")
+    check("a valid acme payload is accepted", signed("/v1/ingest", [acme_p], KEY, SECRET)[0] == 200)
+    check("a valid globex payload is accepted", signed("/v1/ingest", [globex_p], G_KEY, G_SECRET)[0] == 200)
+    signed("/v1/heartbeat", {"collector_id": "col-globex-01", "collector_version": "1.0.0", "config_hash": "cfg-demo", "resource_usage": {}}, G_KEY, G_SECRET)
+
+    fleets = {t: [c["collector_id"] for c in (get("/v1/fleet", tok)[1] or [])] for t, tok in (("acme", DASH), ("globex", G_DASH))}
+    check("each fleet lists only its own collectors", "col-globex-01" in fleets["globex"] and "col-globex-01" not in fleets["acme"] and "col-blr-01" not in fleets["globex"], str(fleets))
+    ids = {t: {o["id"] for o in (get("/v1/objects/observation", tok)[1] or [])} for t, tok in (("acme", DASH), ("globex", G_DASH))}
+    check("observations are disjoint between tenants", globex_p["payload_id"] in ids["globex"] and acme_p["payload_id"] in ids["acme"] and not ids["acme"] & ids["globex"])
+    check("a cross-tenant object fetch returns 404", get(f"/v1/objects/observation/{acme_p['payload_id']}", G_DASH)[0] == 404 and get(f"/v1/objects/observation/{globex_p['payload_id']}", DASH)[0] == 404)
+    metrics = {t: {m.get("payload_id") for m in (get("/v1/metrics?limit=10000", tok)[1] or [])} for t, tok in (("acme", DASH), ("globex", G_DASH))}
+    check("metric queries are disjoint between tenants", globex_p["payload_id"] not in metrics["acme"] and acme_p["payload_id"] not in metrics["globex"])
+    check("an unknown dashboard token is refused", get("/v1/fleet", "dash-nobody")[0] in (401, 403))
+
+    code, body = signed("/v1/ingest", [metric("t-acme", "col-globex-01")], G_KEY, G_SECRET)
+    check("a globex collector naming tenant t-acme is refused", code == 403, f"HTTP {code}: {str(body)[:80]}")
+    code, body = signed("/v1/ingest", [metric("t-globex", "col-globex-01")], KEY, SECRET)
+    check("a payload signed with the other tenant's key is refused", code in (401, 403), f"HTTP {code}")
+
+    bad = {
+        "an extra field (hostname)": metric("t-globex", "col-globex-01", hostname="srv-17.corp.example"),
+        "a secret-like summary": metric("t-globex", "col-globex-01", metric=None, event={"category": "log_event", "severity": "info", "count": 1, "summary": "login ok password=Hunter2! token=abc123def456"}),
+        "an unknown metric name": metric("t-globex", "col-globex-01", metric={"name": "customer_email", "value": 1.0, "unit": "%"}),
+        "a non-UTC timestamp": metric("t-globex", "col-globex-01", event_ts_utc="2026-11-20T15:30:00+05:30"),
+    }
+    for label, payload in bad.items():
+        payload = {k: v for k, v in payload.items() if v is not None}
+        code, body = signed("/v1/ingest", [payload], G_KEY, G_SECRET)
+        reason = " ".join(str(body).split())[:90]
+        check(f"{label} is rejected with a reason", code in (400, 422) and bool(reason), f"HTTP {code}: {reason}")
+    print("  RESULT:", "PASS" if all(results) else "FAIL", f"({sum(results)} of {len(results)} checks)")
+
+
 def failed_logins():
     expect("one auth_failure_burst event (count=30, critical) and no raw login records exported")
     collector_send(failed_login_lines("web-1", 30))
@@ -575,6 +634,7 @@ SCENARIOS = {
     "delivery": delivery,
     "remediation": remediation,
     "hold": hold,
+    "tenants": tenants,
 }
 
 

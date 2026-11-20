@@ -4,11 +4,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import dataclasses
 import json
 import logging
+import os
 import ssl
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 
@@ -36,6 +39,24 @@ def sign(secret: str, body: bytes) -> str:
     return hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
 
+_SECRETISH = ("secret", "key", "token", "password", "cred")
+
+
+def config_hash(cfg: Config) -> str:
+    """A fingerprint of the effective configuration: every non-secret setting plus the contents of the policy and
+    mapping files. It changes when any of them changes, and it reveals none of them."""
+    from . import mapping
+
+    settings = {f.name: str(getattr(cfg, f.name)) for f in dataclasses.fields(cfg) if not any(w in f.name for w in _SECRETISH)}
+    for label, path in (("policy", cfg.policy_file), ("mapping", os.getenv("MAPPING_FILE") or mapping.DEFAULT_FILE)):
+        try:
+            settings[label + "_sha256"] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        except OSError:
+            settings[label + "_sha256"] = "unreadable"
+    blob = json.dumps(settings, sort_keys=True).encode()
+    return "cfg-" + hashlib.sha256(blob).hexdigest()[:16]
+
+
 class Sender:
     def __init__(self, cfg: Config, store: LocalStore):
         self.cfg = cfg
@@ -45,12 +66,33 @@ class Sender:
         self.last_error: str | None = None
         self.held_since: float | None = None  # monotonic-free wall clock; None means sending normally
         self.hold_max_s = HOLD_MAX_S
+        self._proc = None
+        self.config_hash = config_hash(cfg)
         self.last_release: dict | None = None
         self.https = cfg.saas_url.lower().startswith("https://")
         if cfg.require_tls and not self.https:
             raise TlsRequiredError(f"REQUIRE_TLS=1 but SAAS_URL is {cfg.saas_url!r}; use an https:// URL")
         if not self.https:
             log.warning("SaaS link is plain HTTP: payloads are authenticated and signed but NOT encrypted")
+
+    def resource_usage(self) -> dict[str, float]:
+        """This collector process's own load: CPU and memory as a share of the machine, and the disk its data is on.
+        The platform's heartbeat contract allows only these field names."""
+        try:
+            import psutil
+        except ImportError:
+            return {}
+        try:
+            if self._proc is None:
+                self._proc = psutil.Process()
+                self._proc.cpu_percent(None)  # the first reading is always 0; prime it
+            out = {"cpu_percent": round(self._proc.cpu_percent(None) / (psutil.cpu_count() or 1), 2),
+                   "memory_percent": round(self._proc.memory_percent(), 2)}
+            if str(self.cfg.data_dir) != ":memory:" and Path(self.cfg.data_dir).exists():
+                out["disk_percent"] = round(psutil.disk_usage(str(self.cfg.data_dir)).percent, 1)
+            return out
+        except (psutil.Error, OSError):
+            return {}
 
     # --- hold / release (E18): a person can stop payloads leaving, look at them, then let them go ---
     def hold(self) -> dict:
@@ -167,8 +209,8 @@ class Sender:
             {
                 "collector_id": self.cfg.collector_id,
                 "collector_version": COLLECTOR_VERSION,
-                "config_hash": "dev",
-                "resource_usage": {},
+                "config_hash": self.config_hash,
+                "resource_usage": self.resource_usage(),
             },
             sort_keys=True,
             separators=(",", ":"),

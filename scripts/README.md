@@ -172,17 +172,20 @@ UDP_SYSLOG_PORT=5514   TCP_LINES_PORT=5515   FOLLOW_FILES=C:\logs.log,C:\logs.
 - **Formats:** NDJSON, key=value, RFC3164 syslog, CSV (a header line sets the columns for the lines after it) and plain text. A row can carry several metrics, one per column.
 - **`collector/mapping.yaml`** is where a new format is handled without code: the field names for host, metric name, value, time and message; metric aliases with unit conversion (`cpu_ratio` x 100, `latency_s` x 1000, `mem_free_pct` as 100 minus); extra time formats (epoch seconds, ms, us and ns and ISO are built in). Fields not listed are dropped before anything else sees them. A bad mapping file stops the collector at start. `MAPPING_FILE` points to another file.
 - **Samples:** `python simulator\samples.py --list` prints five differently shaped streams (wide NDJSON with epoch ms, CSV with day-first dates, key=value with other field names, syslog failed logins, mixed text with secrets).
-- **Replay and timelines:** `python simulatoreplay.py play simulator	imelines\demo.json [--speed 5]` plays a scripted five-minute timeline (steady traffic, CPU spike at 90 s, latency spike at 150 s, failed-login burst at 190 s, SaaS outage 230 to 255 s). The same timeline and seed always build the same recording (`replay.py build ... -o file.jsonl`). Timestamps are always rebased to now, so it is never backdated. A raw log with ISO timestamps also plays; other time formats in raw logs are not rebased.
+- **Replay and timelines:** `python simulator
+eplay.py play simulator	imelines\demo.json [--speed 5]` plays a scripted five-minute timeline (steady traffic, CPU spike at 90 s, latency spike at 150 s, failed-login burst at 190 s, SaaS outage 230 to 255 s). The same timeline and seed always build the same recording (`replay.py build ... -o file.jsonl`). Timestamps are always rebased to now, so it is never backdated. A raw log with ISO timestamps also plays; other time formats in raw logs are not rebased.
 
 ## Scenarios
 
-`enroll`, `flood`, `failover`, `tls`, `secret`, `hold`, `failed-logins`, `cpu-spike`, `latency`, `packet-loss`, `disk`, `alert-storm`, `outage`, `delivery`, `remediation`.
+`enroll`, `flood`, `failover`, `tls`, `secret`, `hold`, `tenants`, `failed-logins`, `cpu-spike`, `latency`, `packet-loss`, `disk`, `alert-storm`, `outage`, `delivery`, `remediation`.
 
 - Run `python simulator\generator.py --seconds 120` (or leave `run-local.ps1`'s simulator running) first, so the SaaS has a baseline.
 - `outage` cuts the collector's link, buffers, reconnects and then proves zero loss by comparing payload ID sets.
 - `delivery` posts a duplicate, an out-of-order event and a same-ID-different-body payload straight to the SaaS.
 - `enroll` has an admin issue a one-time token, starts a brand-new collector (port 8102, no keys configured) that enrolls itself and starts reporting, shows the platform seeing it online, and shows the same token refused a second time. Needs the stack from `run-local.ps1` (it includes a dev admin token); use `-Tls` so the token and credentials travel encrypted.
 - `flood` starts a collector (port 8103) with tight limits and no reachable platform, sends 40,000 lines, an oversize line and a 3 MiB request, then shows the caps holding, the counted losses and the loss event.
+- `tenants` uses a second dev tenant (`t-globex`, key `key-globex-1`, dashboard token `dash-globex`) to check: each token sees only its own fleet, observations and metrics; a cross-tenant object fetch is 404; a payload naming the other tenant or signed with its key is refused; and an extra field, a secret-like summary, an unknown metric and a non-UTC time are each rejected with the platform's reason. Prints PASS or FAIL per check.
+- The heartbeat carries the collector process's own CPU, memory and data-disk share (`cpu_percent`, `memory_percent`, `disk_percent`, the only names the platform contract allows) and a `config_hash` that fingerprints every non-secret setting plus the policy and mapping files, so it changes when any of them changes. Uptime is not sent: the contract has no field for it.
 - `remediation` drives the SaaS action lifecycle on the latest incident: a policy check that refuses an action on a different source, then propose, approve, roll back, the audit trail, and a blocked invalid transition. It is a simulation: nothing is executed.
 - Scenarios on the same host within about 2 minutes join one incident, because correlation is per source and time window.
 
