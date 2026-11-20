@@ -51,7 +51,7 @@ function Get-PgBin {
   throw "PostgreSQL not found. Install PostgreSQL or set `$env:PG_BIN to its bin folder."
 }
 
-function Test-Alive($id) { return [bool](Get-Process -Id $id -ErrorAction SilentlyContinue) }
+function Test-Alive($id) { if (-not $id) { return $false }; return [bool](Get-Process -Id $id -ErrorAction SilentlyContinue) }  # a pid file from an interrupted start can hold nulls
 
 function Get-Running {
   if (-not (Test-Path $pidFile)) { return @() }

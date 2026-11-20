@@ -4,6 +4,8 @@ Everything the collector side (Member 1) built for Phase 3, in the order to demo
 
 ## 0. Start
 
+Start, recovery and the evidence bundle are in [../p4/demo-runbook.md](../p4/demo-runbook.md).
+
 ```
 .\scripts\run-local.ps1 -Tls          # Postgres, two SaaS replicas, failover proxy, collector, simulator, dashboard
 .\scripts\open-demo.ps1               # egress panel (left) and dashboard (right)
