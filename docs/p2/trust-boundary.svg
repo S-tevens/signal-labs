@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 810" width="1200" height="810" role="img" aria-labelledby="t d">
+  <title id="t">Signal Labs trust boundary and data flow</title>
+  <desc id="d">Raw telemetry enters the collector inside the customer environment, passes five local stages, a policy gate, schema validation and an outbox, and only allow-listed metadata crosses over HTTPS to the central platform.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#344054"/>
+    </marker>
+    <marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#137a3a"/>
+    </marker>
+    <style>
+      text { font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; fill: #14181f; }
+      .h1 { font-size: 20px; font-weight: 700; }
+      .sec { font-size: 15px; font-weight: 700; }
+      .b { font-size: 13px; font-weight: 700; }
+      .s { font-size: 11px; fill: #475467; }
+      .n { font-size: 11px; }
+      .hop { font-size: 12px; font-weight: 700; fill: #344054; }
+      .a { stroke: #344054; stroke-width: 1.6; fill: none; marker-end: url(#ah); }
+      .down { stroke: #344054; stroke-width: 1.3; fill: none; marker-end: url(#ah); }
+    </style>
+  </defs>
+
+  <rect width="1200" height="810" fill="#ffffff"/>
+  <text x="20" y="30" class="h1">Signal Labs: trust boundary and data flow</text>
+  <text x="20" y="48" class="s">Hops H1 to H8 are described in docs/p2/collector.md. Raw data exists only inside the dashed boundary.</text>
+
+  <!-- ===== customer environment ===== -->
+  <rect x="20" y="64" width="700" height="700" rx="14" fill="#fffaf2" stroke="#b54708" stroke-width="2" stroke-dasharray="9 6"/>
+  <text x="40" y="92" class="sec" style="fill:#b54708">CUSTOMER ENVIRONMENT</text>
+  <text x="40" y="107" class="s">trust boundary: raw data never crosses</text>
+
+  <!-- sources -->
+  <rect x="36" y="150" width="170" height="76" rx="8" fill="#fff" stroke="#98a2b3"/>
+  <text x="46" y="172" class="b">Applications &amp; servers</text>
+  <text x="46" y="190" class="s">JSON · syslog · key=value · text</text>
+  <text x="46" y="206" class="s">(including auth logs)</text>
+
+  <rect x="36" y="246" width="170" height="64" rx="8" fill="#fff" stroke="#98a2b3"/>
+  <text x="46" y="268" class="b">This host</text>
+  <text x="46" y="286" class="s">CPU · memory · disk ·</text>
+  <text x="46" y="300" class="s">bandwidth (psutil)</text>
+
+  <rect x="36" y="330" width="170" height="64" rx="8" fill="#fff" stroke="#98a2b3"/>
+  <text x="46" y="352" class="b">Network &amp; services</text>
+  <text x="46" y="370" class="s">TCP probes: latency,</text>
+  <text x="46" y="384" class="s">loss, reachability</text>
+
+  <rect x="36" y="420" width="170" height="104" rx="8" fill="#fdecea" stroke="#b42318"/>
+  <text x="46" y="442" class="b" style="fill:#b42318">NEVER LEAVES</text>
+  <text x="46" y="462" class="s">raw log text · usernames</text>
+  <text x="46" y="478" class="s">emails · IP addresses</text>
+  <text x="46" y="494" class="s">host names · passwords</text>
+  <text x="46" y="510" class="s">tokens · keys</text>
+
+  <rect x="36" y="544" width="170" height="64" rx="8" fill="#fff" stroke="#98a2b3"/>
+  <text x="46" y="566" class="b">Local operator</text>
+  <text x="46" y="584" class="s">browser, same machine</text>
+  <text x="46" y="598" class="s">127.0.0.1:8101/local/ui</text>
+
+  <!-- source arrows -->
+  <path d="M206,188 L250,188" class="a"/><text x="228" y="180" class="hop" text-anchor="middle">H1</text>
+  <path d="M206,278 L250,278" class="a"/><text x="228" y="270" class="hop" text-anchor="middle">H2</text>
+  <path d="M250,362 L206,362" class="a"/><text x="228" y="354" class="hop" text-anchor="middle">H3</text>
+  <path d="M206,576 L250,576" class="a"/><text x="228" y="568" class="hop" text-anchor="middle">H8</text>
+
+  <!-- ===== collector ===== -->
+  <rect x="250" y="110" width="450" height="530" rx="12" fill="#ffffff" stroke="#667085" stroke-width="1.5"/>
+  <text x="266" y="132" class="sec">COLLECTOR (Tier 1) · FastAPI :8101</text>
+
+  <!-- stages 1-5: may handle raw data -->
+  <g fill="#fff4e5" stroke="#b54708">
+    <rect x="266" y="150" width="418" height="46" rx="7"/>
+    <rect x="266" y="208" width="418" height="46" rx="7"/>
+    <rect x="266" y="266" width="418" height="46" rx="7"/>
+    <rect x="266" y="324" width="418" height="46" rx="7"/>
+    <rect x="266" y="382" width="418" height="46" rx="7"/>
+  </g>
+  <!-- stages 6-8: approved metadata only -->
+  <g fill="#e6f6ec" stroke="#137a3a">
+    <rect x="266" y="440" width="418" height="46" rx="7"/>
+    <rect x="266" y="498" width="418" height="46" rx="7"/>
+    <rect x="266" y="556" width="418" height="46" rx="7"/>
+  </g>
+
+  <text x="278" y="169" class="b">1  Intake + parse (any format)</text>
+  <text x="278" y="186" class="s">POST /ingest, host sampler and probes enter here</text>
+  <text x="278" y="227" class="b">2  Raw store: LOCAL ONLY</text>
+  <text x="278" y="244" class="s">SQLite · secrets visible to the local operator only</text>
+  <text x="278" y="285" class="b">3  Redact + pseudonymize</text>
+  <text x="278" y="302" class="s">8 scrubbing rules flag sensitive spans · host name becomes an HMAC source id</text>
+  <text x="278" y="343" class="b">4  Aggregate</text>
+  <text x="278" y="360" class="s">5 s windows per source · late events handled · mean (min for booleans)</text>
+  <text x="278" y="401" class="b">5  Analyse locally</text>
+  <text x="278" y="418" class="s">failed logins become a count and a category · no raw record is exported</text>
+  <text x="278" y="459" class="b" style="fill:#137a3a">6  Policy gate</text>
+  <text x="278" y="476" class="s">policy.yaml: allowed fields, metrics, categories · fails closed</text>
+  <text x="278" y="517" class="b" style="fill:#137a3a">7  Schema validation</text>
+  <text x="278" y="534" class="s">strict allow-list · extra fields, bad names, bad units, non-UTC times rejected</text>
+  <text x="278" y="575" class="b" style="fill:#137a3a">8  Outbox + egress log</text>
+  <text x="278" y="592" class="s">SQLite · exactly what is sent · retry with backoff · unique payload id</text>
+
+  <g>
+    <path d="M475,196 L475,208" class="down"/><path d="M475,254 L475,266" class="down"/>
+    <path d="M475,312 L475,324" class="down"/><path d="M475,370 L475,382" class="down"/>
+    <path d="M475,428 L475,440" class="down"/><path d="M475,486 L475,498" class="down"/>
+    <path d="M475,544 L475,556" class="down"/>
+  </g>
+  <text x="690" y="622" class="s" text-anchor="end">stages 1 to 5 may touch raw data · 6 to 8 handle approved metadata only</text>
+
+  <!-- ===== H4: crosses the boundary ===== -->
+  <path d="M684,579 L916,579" stroke="#137a3a" stroke-width="3.2" fill="none" marker-end="url(#ahg)"/>
+  <text x="726" y="478" class="hop" style="fill:#137a3a">H4  HTTPS, TLS 1.2+</text>
+  <text x="726" y="493" class="s">server checked against the CA</text>
+  <text x="726" y="508" class="s">X-Collector-Key</text>
+  <text x="726" y="523" class="s">X-Signature = HMAC-SHA256</text>
+  <text x="726" y="538" class="s">of the exact body bytes</text>
+  <text x="726" y="553" class="s">allow-listed fields only</text>
+  <text x="726" y="602" class="b" style="fill:#b42318;font-size:11px">crosses the trust boundary</text>
+
+  <!-- ===== central platform ===== -->
+  <rect x="900" y="64" width="280" height="700" rx="14" fill="#f5f8ff" stroke="#175cd3" stroke-width="2"/>
+  <text x="920" y="92" class="sec" style="fill:#175cd3">CENTRAL PLATFORM</text>
+  <text x="920" y="107" class="s">metadata only · multi-tenant</text>
+
+  <rect x="920" y="130" width="240" height="88" rx="8" fill="#eaf1fe" stroke="#175cd3"/>
+  <text x="932" y="152" class="b" style="fill:#175cd3">Metadata only</text>
+  <text x="932" y="171" class="s">no raw logs, secrets, real host</text>
+  <text x="932" y="186" class="s">names or IP addresses ever</text>
+  <text x="932" y="201" class="s">reach this side</text>
+
+  <rect x="920" y="296" width="240" height="62" rx="8" fill="#fff" stroke="#175cd3"/>
+  <text x="932" y="318" class="b">PostgreSQL</text>
+  <text x="932" y="336" class="s">row-level security by tenant</text>
+
+  <rect x="920" y="398" width="112" height="62" rx="8" fill="#fff" stroke="#175cd3"/>
+  <text x="930" y="420" class="b">SaaS replica 1</text>
+  <text x="930" y="438" class="s">:8000 · stateless</text>
+  <rect x="1048" y="398" width="112" height="62" rx="8" fill="#fff" stroke="#175cd3"/>
+  <text x="1058" y="420" class="b">SaaS replica 2</text>
+  <text x="1058" y="438" class="s">:8001 · stateless</text>
+
+  <rect x="920" y="549" width="240" height="60" rx="8" fill="#fff" stroke="#175cd3"/>
+  <text x="932" y="571" class="b">Failover proxy :8080</text>
+  <text x="932" y="589" class="s">terminates TLS · exact bytes · retries</text>
+
+  <rect x="920" y="652" width="240" height="64" rx="8" fill="#fff" stroke="#98a2b3"/>
+  <text x="932" y="674" class="b">Dashboard (browser)</text>
+  <text x="932" y="692" class="s">Bearer token, one tenant per token</text>
+
+  <path d="M1000,549 L976,460" class="a"/><path d="M1080,549 L1104,460" class="a"/>
+  <text x="1046" y="508" class="hop" text-anchor="middle">H5</text>
+  <path d="M976,398 L1000,358" class="a"/><path d="M1104,398 L1080,358" class="a"/>
+  <text x="1040" y="384" class="hop" text-anchor="middle">H6</text>
+  <path d="M1040,652 L1040,609" class="a"/>
+  <text x="1056" y="636" class="hop">H7</text>
+
+  <text x="920" y="740" class="s">H5 proxy to replica (HTTPS, exact bytes)</text>
+  <text x="920" y="754" class="s">H6 replica to database · H7 dashboard to proxy</text>
+
+  <!-- hop legend inside the customer environment -->
+  <g>
+    <text x="40" y="650" class="b">Hops inside the environment</text>
+    <text x="40" y="668" class="n">H1  POST /ingest on loopback: JSON, syslog, key=value or plain text</text>
+    <text x="40" y="684" class="n">H2  host sampler, in-process (no network)</text>
+    <text x="40" y="700" class="n">H3  TCP connect probes out to the targets (no payload data)</text>
+    <text x="40" y="716" class="n">H8  operator to /local/ui and /local/lineage (this machine only, 403 otherwise)</text>
+  </g>
+
+  <!-- colour key -->
+  <g>
+    <rect x="20" y="782" width="14" height="14" fill="#fff4e5" stroke="#b54708"/><text x="40" y="794" class="n">may handle raw data</text>
+    <rect x="190" y="782" width="14" height="14" fill="#e6f6ec" stroke="#137a3a"/><text x="210" y="794" class="n">approved metadata only</text>
+    <rect x="390" y="782" width="14" height="14" fill="#fdecea" stroke="#b42318"/><text x="410" y="794" class="n">never leaves</text>
+    <rect x="530" y="782" width="14" height="14" fill="#eaf1fe" stroke="#175cd3"/><text x="550" y="794" class="n">central platform</text>
+  </g>
+</svg>
