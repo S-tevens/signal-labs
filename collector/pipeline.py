@@ -17,6 +17,7 @@ from .config import COLLECTOR_VERSION, Config
 from .local_analysis import SUMMARY, classify_auth, is_auth_failure
 from .outbox import LocalStore
 from . import mapping
+from . import health
 from .parsers import parse_line, parse_records
 from .policy import Policy
 from .redact import pseudonym, redact
@@ -139,9 +140,11 @@ class Pipeline:
         }
         if w.kind == "metric":
             body["metric"] = {"name": w.name, "value": w.value, "unit": METRIC_UNITS[w.name]}
+            body["health_state"] = health.metric_state(w.name, w.value)
         elif w.kind == "auth":
             category, severity = classify_auth(w.n, self.cfg.burst_threshold)
             body["event"] = {"category": category, "severity": severity, "count": w.n, "summary": SUMMARY[category]}
+            body["health_state"] = health.event_state(severity)
         else:
             body["event"] = {"category": "log_event", "severity": "info", "count": w.n, "summary": SUMMARY["log_event"]}
 
@@ -173,7 +176,7 @@ class Pipeline:
             "event_ts_utc": datetime.now(timezone.utc),
             "source_tz": self.cfg.source_tz,
             "window_s": self.cfg.window_s,
-            "health_state": "Good",
+            "health_state": health.event_state(severity),
             "collector_version": COLLECTOR_VERSION,
             "event": {"category": category, "severity": severity, "count": max(1, min(int(count), 1_000_000)), "summary": summary},
         }

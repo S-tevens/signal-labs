@@ -1,5 +1,5 @@
 from statistics import median
-ALIASES={'cpu_pct':'cpu','memory_pct':'memory','mem_pct':'memory','disk_pct':'disk','packet_loss_pct':'packet_loss','cpu_percent':'cpu','cpu_usage':'cpu','memory_percent':'memory','memory_usage':'memory','disk_percent':'disk','disk_usage':'disk','latency_ms':'latency','network_latency':'latency','network_latency_ms':'latency','packet_loss_percent':'packet_loss','bandwidth_mbps':'bandwidth','service_availability':'availability'}
+ALIASES={'cpu_pct':'cpu','memory_pct':'memory','mem_pct':'memory','disk_pct':'disk','packet_loss_pct':'packet_loss','cpu_percent':'cpu','cpu_usage':'cpu','memory_percent':'memory','memory_usage':'memory','disk_percent':'disk','disk_usage':'disk','latency_ms':'latency','network_latency':'latency','network_latency_ms':'latency','packet_loss_percent':'packet_loss','bandwidth_mbps':'bandwidth','service_availability':'availability','service_up':'availability','connectivity_up':'connectivity'}
 def canonical(name):
     name=name.lower().replace('.','_').replace('-','_'); return ALIASES.get(name,name)
 def detect(metric, history, config):

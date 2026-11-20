@@ -1,0 +1,12 @@
+# The collector's own health verdict for each payload. These are the SAME numbers as saas/config/thresholds.yaml
+# (a test fails if they drift apart), so the state the collector reports agrees with the one the platform computes.
+# A value at or above `poor` is Poor, at or above `fair` Fair, at or above `good` Good, otherwise Excellent.
+# `inverse` metrics (up/reachable) are the other way round: at or below `poor` is Poor.
+metrics:
+  cpu_pct: {good: 60, fair: 80, poor: 95}
+  mem_pct: {good: 65, fair: 80, poor: 95}
+  disk_pct: {good: 70, fair: 85, poor: 95}
+  latency_ms: {good: 80, fair: 150, poor: 300}
+  packet_loss_pct: {good: 0.5, fair: 2, poor: 5}
+  service_up: {inverse: true, good: 1, fair: 0.5, poor: 0}
+  connectivity_up: {inverse: true, good: 1, fair: 0.5, poor: 0}

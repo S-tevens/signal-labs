@@ -169,6 +169,7 @@ def secret():
     eg = json.dumps(_call(f"{COLLECTOR}/local/egress?limit=20")[1])
     for s in ["Hunter2", "alice@corp.com", "10.2.4.7", "AKIAABCDEFGHIJKLMNOP", "abc123def456", "web-1"]:
         print(f"  {s!r:26} leaked into egress? {s in eg}")
+    print("  RESULT:", "FAIL" if any(x in eg for x in ["Hunter2", "alice@corp.com", "10.2.4.7", "AKIAABCDEFGHIJKLMNOP", "abc123def456", "web-1"]) else "PASS")
     print("  Open", f"{COLLECTOR}/local/raw", "(secrets visible, local) and", f"{COLLECTOR}/local/egress", "(what left)")
 
 
