@@ -10,6 +10,7 @@ from .schema import Payload,Heartbeat
 from .auth import Auth
 from .store import Store,utc,epoch,dump,state
 from .ingest import process,refresh
+from .llm import Engine
 from .proof import proof
 from .contract import validate_contract
 from .ontology import REGISTRY, list_objects, object_detail, incident_lineage, payload_lineage
@@ -199,6 +200,16 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
     def object_by_id(request:Request,kind:str,ident:str):
         who=auth.dashboard(request)
         with store.connect(who.tenant) as db: return object_detail(db,who,kind,ident)
+    ai_engine=Engine()
+    @app.get('/v1/ai/status')
+    def ai_status(request:Request):
+        auth.dashboard(request)
+        return ai_engine.status()
+    @app.get('/v1/incidents/{ident}/ai-summary')
+    def ai_summary(request:Request,ident:str):
+        who=auth.dashboard(request)
+        with store.connect(who.tenant) as db: incident=object_detail(db,who,'incident',ident)  # 404 for another tenant's incident
+        return ai_engine.explain(incident['properties'])
     @app.get('/v1/lineage/incident/{ident}')
     def incident_evidence(request:Request,ident:str):
         who=auth.dashboard(request)

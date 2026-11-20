@@ -1,0 +1,775 @@
+{
+  "started_utc": "2026-11-20T20:56:46Z",
+  "settings": {
+    "collector_timing": {
+      "profile": "realtime",
+      "window_s": 2,
+      "grace_s": 1.0,
+      "flush_interval_s": 0.5,
+      "send_interval_s": 0.25,
+      "heartbeat_interval_s": 5.0,
+      "batch_size": 50,
+      "probe_interval_s": 5.0,
+      "host_interval_s": 2.0
+    },
+    "platform_thresholds_from_repo_file": {
+      "stale_after_s": 30.0,
+      "offline_after_s": 40.0,
+      "anomaly_persistence_windows": 2.0,
+      "baseline_min": 8.0,
+      "correlation_window_s": 120.0
+    },
+    "failover_proxy": true,
+    "saas_url": "https://127.0.0.1:8080"
+  },
+  "results": {
+    "latency": {
+      "dash_from_newest": {
+        "n": 90,
+        "min": 3.686,
+        "p50": 4.625,
+        "p95": 7.375,
+        "p99": 7.676,
+        "max": 7.676
+      },
+      "dash_from_window": {
+        "n": 90,
+        "min": 4.713,
+        "p50": 5.653,
+        "p95": 8.402,
+        "p99": 8.706,
+        "max": 8.706
+      },
+      "api_from_newest": {
+        "n": 90,
+        "min": 5.704,
+        "p50": 8.263,
+        "p95": 11.395,
+        "p99": 11.64,
+        "max": 11.64
+      },
+      "api_from_window": {
+        "n": 90,
+        "min": 6.732,
+        "p50": 9.291,
+        "p95": 12.428,
+        "p99": 12.667,
+        "max": 12.667
+      },
+      "payloads": 90,
+      "never_seen_on_dashboard_path": 0,
+      "never_seen_on_api": 0,
+      "target_s": 10.0,
+      "verdict": "PASS",
+      "host": "measure-lat-c500",
+      "samples": [
+        {
+          "payload_id": "d83aeae7-6bf6-4381-b0b8-2f18f90f3f2d",
+          "event_ts_utc": "2026-11-20T20:57:49.030000Z",
+          "window_s": 2,
+          "seen_api": 1795208276.0462239,
+          "seen_dashboard_path": 1795208273.4362066
+        },
+        {
+          "payload_id": "a4af1d34-9e0e-466c-907f-1a20ab9b0cfe",
+          "event_ts_utc": "2026-11-20T20:57:49.030000Z",
+          "window_s": 2,
+          "seen_api": 1795208276.0462239,
+          "seen_dashboard_path": 1795208273.4362066
+        },
+        {
+          "payload_id": "492bfaae-9ada-4e84-bfef-360ad492aafe",
+          "event_ts_utc": "2026-11-20T20:57:49.030000Z",
+          "window_s": 2,
+          "seen_api": 1795208276.0462239,
+          "seen_dashboard_path": 1795208273.4362066
+        },
+        {
+          "payload_id": "143ce313-66ff-406d-b053-fd9c4aad024e",
+          "event_ts_utc": "2026-11-20T20:57:47.040000Z",
+          "window_s": 2,
+          "seen_api": 1795208276.0462239,
+          "seen_dashboard_path": 1795208270.8946266
+        },
+        {
+          "payload_id": "45d17386-0f4e-4822-8baf-7ac8b18e194e",
+          "event_ts_utc": "2026-11-20T20:57:47.040000Z",
+          "window_s": 2,
+          "seen_api": 1795208276.0462239,
+          "seen_dashboard_path": 1795208270.8946266
+        },
+        {
+          "payload_id": "5aef046e-2a23-43e1-a612-567061b18e2d",
+          "event_ts_utc": "2026-11-20T20:57:47.040000Z",
+          "window_s": 2,
+          "seen_api": 1795208276.0462239,
+          "seen_dashboard_path": 1795208270.8946266
+        },
+        {
+          "payload_id": "6fa4210e-63fd-4ac4-9a5c-321bea69ca7d",
+          "event_ts_utc": "2026-11-20T20:57:45.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208272.3275485,
+          "seen_dashboard_path": 1795208269.6784444
+        },
+        {
+          "payload_id": "636a3b62-fe5f-4676-8fae-e4334772bead",
+          "event_ts_utc": "2026-11-20T20:57:45.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208272.3275485,
+          "seen_dashboard_path": 1795208269.6784444
+        },
+        {
+          "payload_id": "3df332c9-d951-4727-83c9-8b9b2c726b0c",
+          "event_ts_utc": "2026-11-20T20:57:45.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208272.3275485,
+          "seen_dashboard_path": 1795208269.6784444
+        },
+        {
+          "payload_id": "3be50deb-de15-4a06-9787-66824065a6d3",
+          "event_ts_utc": "2026-11-20T20:57:43.030000Z",
+          "window_s": 2,
+          "seen_api": 1795208272.3275485,
+          "seen_dashboard_path": 1795208267.281366
+        },
+        {
+          "payload_id": "3750cc5f-66b7-41d4-9393-f5c85cc7758e",
+          "event_ts_utc": "2026-11-20T20:57:43.030000Z",
+          "window_s": 2,
+          "seen_api": 1795208272.3275485,
+          "seen_dashboard_path": 1795208267.281366
+        },
+        {
+          "payload_id": "9a85f12a-f073-4544-bb1b-eeaed76351d1",
+          "event_ts_utc": "2026-11-20T20:57:43.030000Z",
+          "window_s": 2,
+          "seen_api": 1795208272.3275485,
+          "seen_dashboard_path": 1795208267.281366
+        },
+        {
+          "payload_id": "8dca3c55-bd4f-4d3b-9df5-dc1b63c41001",
+          "event_ts_utc": "2026-11-20T20:57:41.030000Z",
+          "window_s": 2,
+          "seen_api": 1795208268.6667442,
+          "seen_dashboard_path": 1795208265.8047915
+        },
+        {
+          "payload_id": "16739c5d-d384-4227-9b8c-1d091c83b704",
+          "event_ts_utc": "2026-11-20T20:57:41.030000Z",
+          "window_s": 2,
+          "seen_api": 1795208268.6667442,
+          "seen_dashboard_path": 1795208265.8047915
+        },
+        {
+          "payload_id": "ecf24966-df55-43fd-ac4d-70621aff8bae",
+          "event_ts_utc": "2026-11-20T20:57:41.030000Z",
+          "window_s": 2,
+          "seen_api": 1795208268.6667442,
+          "seen_dashboard_path": 1795208265.8047915
+        },
+        {
+          "payload_id": "f57e788b-d3fc-44d0-8d95-0da532f30614",
+          "event_ts_utc": "2026-11-20T20:57:39.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208268.6667442,
+          "seen_dashboard_path": 1795208264.4024098
+        },
+        {
+          "payload_id": "7d4da43b-8bb0-497e-83b1-065e2e84c0fa",
+          "event_ts_utc": "2026-11-20T20:57:39.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208268.6667442,
+          "seen_dashboard_path": 1795208264.4024098
+        },
+        {
+          "payload_id": "b0346362-f9a2-41aa-997b-a72449526bab",
+          "event_ts_utc": "2026-11-20T20:57:39.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208268.6667442,
+          "seen_dashboard_path": 1795208264.4024098
+        },
+        {
+          "payload_id": "edbb21d2-d7f7-40f2-9d70-1796967dfb87",
+          "event_ts_utc": "2026-11-20T20:57:37.027000Z",
+          "window_s": 2,
+          "seen_api": 1795208268.6667442,
+          "seen_dashboard_path": 1795208264.4024098
+        },
+        {
+          "payload_id": "4a15edea-1786-4b50-a1fc-387a74c37fc1",
+          "event_ts_utc": "2026-11-20T20:57:37.027000Z",
+          "window_s": 2,
+          "seen_api": 1795208268.6667442,
+          "seen_dashboard_path": 1795208264.4024098
+        },
+        {
+          "payload_id": "2ee2aeac-1557-4433-8c68-5a4583bce4e7",
+          "event_ts_utc": "2026-11-20T20:57:37.027000Z",
+          "window_s": 2,
+          "seen_api": 1795208268.6667442,
+          "seen_dashboard_path": 1795208264.4024098
+        },
+        {
+          "payload_id": "e831cdeb-08f8-4aad-b08b-a837b818be8e",
+          "event_ts_utc": "2026-11-20T20:57:35.027000Z",
+          "window_s": 2,
+          "seen_api": 1795208264.4276643,
+          "seen_dashboard_path": 1795208261.417802
+        },
+        {
+          "payload_id": "2a8d2405-aea8-4d6f-9b82-5111da0c3706",
+          "event_ts_utc": "2026-11-20T20:57:35.027000Z",
+          "window_s": 2,
+          "seen_api": 1795208264.4276643,
+          "seen_dashboard_path": 1795208261.417802
+        },
+        {
+          "payload_id": "1fcb6f51-269d-480d-85df-0614f370a4f0",
+          "event_ts_utc": "2026-11-20T20:57:35.027000Z",
+          "window_s": 2,
+          "seen_api": 1795208264.4276643,
+          "seen_dashboard_path": 1795208261.417802
+        },
+        {
+          "payload_id": "d649ddbe-d79a-4b13-a5a1-ce8034766711",
+          "event_ts_utc": "2026-11-20T20:57:33.033000Z",
+          "window_s": 2,
+          "seen_api": 1795208264.4276643,
+          "seen_dashboard_path": 1795208260.044587
+        },
+        {
+          "payload_id": "1ab0cb91-9ee2-45a1-9cc0-2fea1742dded",
+          "event_ts_utc": "2026-11-20T20:57:33.033000Z",
+          "window_s": 2,
+          "seen_api": 1795208264.4276643,
+          "seen_dashboard_path": 1795208260.044587
+        },
+        {
+          "payload_id": "0ee13f6f-6b3e-4f32-9739-3a783610955a",
+          "event_ts_utc": "2026-11-20T20:57:33.033000Z",
+          "window_s": 2,
+          "seen_api": 1795208264.4276643,
+          "seen_dashboard_path": 1795208260.044587
+        },
+        {
+          "payload_id": "8f89aa06-74e9-4804-bf61-95e8ab20d150",
+          "event_ts_utc": "2026-11-20T20:57:31.030000Z",
+          "window_s": 2,
+          "seen_api": 1795208260.0532928,
+          "seen_dashboard_path": 1795208258.7058187
+        },
+        {
+          "payload_id": "fc87ab01-97f8-4475-bf1a-441a8b2a6891",
+          "event_ts_utc": "2026-11-20T20:57:31.030000Z",
+          "window_s": 2,
+          "seen_api": 1795208260.0532928,
+          "seen_dashboard_path": 1795208258.7058187
+        },
+        {
+          "payload_id": "7688c7bc-c25e-4ce8-b49d-7d605fcf2ac4",
+          "event_ts_utc": "2026-11-20T20:57:31.030000Z",
+          "window_s": 2,
+          "seen_api": 1795208260.0532928,
+          "seen_dashboard_path": 1795208258.7058187
+        },
+        {
+          "payload_id": "decc6400-4008-4431-934f-e4fc8af03972",
+          "event_ts_utc": "2026-11-20T20:57:29.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208260.0532928,
+          "seen_dashboard_path": 1795208253.753703
+        },
+        {
+          "payload_id": "3f441df4-7dfd-4c93-b24d-3bc1e7e82199",
+          "event_ts_utc": "2026-11-20T20:57:29.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208260.0532928,
+          "seen_dashboard_path": 1795208253.753703
+        },
+        {
+          "payload_id": "000b4d03-5c9d-4653-b8af-29dce536558d",
+          "event_ts_utc": "2026-11-20T20:57:29.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208260.0532928,
+          "seen_dashboard_path": 1795208253.753703
+        },
+        {
+          "payload_id": "3c581797-4751-473b-814a-38c87b44bd66",
+          "event_ts_utc": "2026-11-20T20:57:27.027000Z",
+          "window_s": 2,
+          "seen_api": 1795208253.921224,
+          "seen_dashboard_path": 1795208250.712661
+        },
+        {
+          "payload_id": "0116a246-be29-49b5-8203-dc8fcef6fed4",
+          "event_ts_utc": "2026-11-20T20:57:27.027000Z",
+          "window_s": 2,
+          "seen_api": 1795208253.921224,
+          "seen_dashboard_path": 1795208250.712661
+        },
+        {
+          "payload_id": "ca592739-a6b7-4f7d-a063-b901d144251a",
+          "event_ts_utc": "2026-11-20T20:57:27.027000Z",
+          "window_s": 2,
+          "seen_api": 1795208253.921224,
+          "seen_dashboard_path": 1795208250.712661
+        },
+        {
+          "payload_id": "37fb1a07-398d-49f9-abdc-315fb8799191",
+          "event_ts_utc": "2026-11-20T20:57:25.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208253.921224,
+          "seen_dashboard_path": 1795208249.4515538
+        },
+        {
+          "payload_id": "968b12f3-6f8d-42ea-b8a3-ff495006644b",
+          "event_ts_utc": "2026-11-20T20:57:25.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208253.921224,
+          "seen_dashboard_path": 1795208249.4515538
+        },
+        {
+          "payload_id": "4608825e-18f0-469d-a2af-eac21d1e0e5c",
+          "event_ts_utc": "2026-11-20T20:57:25.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208253.921224,
+          "seen_dashboard_path": 1795208249.4515538
+        },
+        {
+          "payload_id": "e46f97ec-79ba-4620-843f-c05b8eb786ea",
+          "event_ts_utc": "2026-11-20T20:57:23.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208249.2149465,
+          "seen_dashboard_path": 1795208246.8590577
+        },
+        {
+          "payload_id": "6b54cadb-bee0-4e41-90bf-acfba4d0b50f",
+          "event_ts_utc": "2026-11-20T20:57:23.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208249.2149465,
+          "seen_dashboard_path": 1795208246.8590577
+        },
+        {
+          "payload_id": "79c7e957-ba95-458e-90b9-3fb5cf062338",
+          "event_ts_utc": "2026-11-20T20:57:23.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208249.2149465,
+          "seen_dashboard_path": 1795208248.1447034
+        },
+        {
+          "payload_id": "33b5aa94-465a-489d-a4a8-9872ea68d50f",
+          "event_ts_utc": "2026-11-20T20:57:21.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208249.2149465,
+          "seen_dashboard_path": 1795208245.6001482
+        },
+        {
+          "payload_id": "bf6863e5-2f12-4f4c-afe8-d70a30dc94c3",
+          "event_ts_utc": "2026-11-20T20:57:21.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208249.2149465,
+          "seen_dashboard_path": 1795208245.6001482
+        },
+        {
+          "payload_id": "de8abe53-ebd4-443d-b4b2-e08865fdcb23",
+          "event_ts_utc": "2026-11-20T20:57:21.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208249.2149465,
+          "seen_dashboard_path": 1795208245.6001482
+        },
+        {
+          "payload_id": "cf9938ab-e3fa-4d7b-b3b4-167ebd1fc364",
+          "event_ts_utc": "2026-11-20T20:57:19.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208245.2910867,
+          "seen_dashboard_path": 1795208244.2631881
+        },
+        {
+          "payload_id": "fd4940f4-eee2-4a83-9aa0-71b3be7660bf",
+          "event_ts_utc": "2026-11-20T20:57:19.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208245.2910867,
+          "seen_dashboard_path": 1795208244.2631881
+        },
+        {
+          "payload_id": "c539df99-f92b-41f1-9bba-250fb7eea75e",
+          "event_ts_utc": "2026-11-20T20:57:19.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208245.2910867,
+          "seen_dashboard_path": 1795208244.2631881
+        },
+        {
+          "payload_id": "0de4fa95-0f8d-488c-8ef9-0d8aaafb7b78",
+          "event_ts_utc": "2026-11-20T20:57:17.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208245.2910867,
+          "seen_dashboard_path": 1795208241.4817271
+        },
+        {
+          "payload_id": "3ac200ff-90d3-4dc0-b50c-417c766360cc",
+          "event_ts_utc": "2026-11-20T20:57:17.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208245.2910867,
+          "seen_dashboard_path": 1795208241.4817271
+        },
+        {
+          "payload_id": "a1ad798a-bde4-4855-918c-85e5365e8773",
+          "event_ts_utc": "2026-11-20T20:57:17.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208245.2910867,
+          "seen_dashboard_path": 1795208241.4817271
+        },
+        {
+          "payload_id": "59e756e6-811a-4875-91f1-c29dd9dc152a",
+          "event_ts_utc": "2026-11-20T20:57:15.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208245.2910867,
+          "seen_dashboard_path": 1795208240.102997
+        },
+        {
+          "payload_id": "a871dbf5-8bb9-4774-96a2-c2f8d9aa6d02",
+          "event_ts_utc": "2026-11-20T20:57:15.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208245.2910867,
+          "seen_dashboard_path": 1795208240.102997
+        },
+        {
+          "payload_id": "007560b6-8f63-4398-9b10-a9b0e8059d5e",
+          "event_ts_utc": "2026-11-20T20:57:15.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208245.2910867,
+          "seen_dashboard_path": 1795208240.102997
+        },
+        {
+          "payload_id": "1a8445f6-7a4d-4f8f-bb85-7f7be2b64ff2",
+          "event_ts_utc": "2026-11-20T20:57:13.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208241.4687319,
+          "seen_dashboard_path": 1795208240.102997
+        },
+        {
+          "payload_id": "50e6769c-0a30-47fc-a17d-c33aabda5bbe",
+          "event_ts_utc": "2026-11-20T20:57:13.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208241.4687319,
+          "seen_dashboard_path": 1795208240.102997
+        },
+        {
+          "payload_id": "88812f8e-d1ab-4d05-9205-2dfaa44ef607",
+          "event_ts_utc": "2026-11-20T20:57:13.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208241.4687319,
+          "seen_dashboard_path": 1795208238.7502816
+        },
+        {
+          "payload_id": "0f138029-5d1d-4d23-bd3a-b694dec22e40",
+          "event_ts_utc": "2026-11-20T20:57:11.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208241.4687319,
+          "seen_dashboard_path": 1795208236.1332154
+        },
+        {
+          "payload_id": "504019ee-ad2c-4ec5-aaa2-46aecb1dd373",
+          "event_ts_utc": "2026-11-20T20:57:11.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208241.4687319,
+          "seen_dashboard_path": 1795208236.1332154
+        },
+        {
+          "payload_id": "20a1d7c1-a659-4af6-9210-13dc40c8ca40",
+          "event_ts_utc": "2026-11-20T20:57:11.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208241.4687319,
+          "seen_dashboard_path": 1795208236.1332154
+        },
+        {
+          "payload_id": "dfae0d7e-0b81-4f0f-b919-c798f77ebbf2",
+          "event_ts_utc": "2026-11-20T20:57:09.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208236.1454117,
+          "seen_dashboard_path": 1795208232.8953538
+        },
+        {
+          "payload_id": "74fe2ae9-7eae-4fa8-89a7-d8c83cc9db05",
+          "event_ts_utc": "2026-11-20T20:57:09.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208236.1454117,
+          "seen_dashboard_path": 1795208232.8953538
+        },
+        {
+          "payload_id": "2585006b-266b-4c1a-9150-53b686e295a1",
+          "event_ts_utc": "2026-11-20T20:57:09.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208236.1454117,
+          "seen_dashboard_path": 1795208232.8953538
+        },
+        {
+          "payload_id": "de804110-2b34-4c43-9f4d-c540a889676d",
+          "event_ts_utc": "2026-11-20T20:57:07.031000Z",
+          "window_s": 2,
+          "seen_api": 1795208236.1454117,
+          "seen_dashboard_path": 1795208231.7640145
+        },
+        {
+          "payload_id": "dd75d384-cf3c-4b8f-998e-d8a7789cab5c",
+          "event_ts_utc": "2026-11-20T20:57:07.031000Z",
+          "window_s": 2,
+          "seen_api": 1795208236.1454117,
+          "seen_dashboard_path": 1795208231.7640145
+        },
+        {
+          "payload_id": "c7faec31-cddb-473a-a714-c03d33131dbb",
+          "event_ts_utc": "2026-11-20T20:57:07.031000Z",
+          "window_s": 2,
+          "seen_api": 1795208236.1454117,
+          "seen_dashboard_path": 1795208231.7640145
+        },
+        {
+          "payload_id": "773d56e2-6875-474a-908f-b88d244afd23",
+          "event_ts_utc": "2026-11-20T20:57:05.031000Z",
+          "window_s": 2,
+          "seen_api": 1795208232.0501697,
+          "seen_dashboard_path": 1795208229.106542
+        },
+        {
+          "payload_id": "5d50a526-6bf8-4e39-b41c-3e7d4ba83e83",
+          "event_ts_utc": "2026-11-20T20:57:05.031000Z",
+          "window_s": 2,
+          "seen_api": 1795208232.0501697,
+          "seen_dashboard_path": 1795208229.106542
+        },
+        {
+          "payload_id": "d58d09ea-9ff6-43db-81bb-9d09d6ab9ed1",
+          "event_ts_utc": "2026-11-20T20:57:05.031000Z",
+          "window_s": 2,
+          "seen_api": 1795208232.0501697,
+          "seen_dashboard_path": 1795208229.106542
+        },
+        {
+          "payload_id": "c00906c7-2a66-4e5e-95c5-1dd7d669cf17",
+          "event_ts_utc": "2026-11-20T20:57:03.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208232.0501697,
+          "seen_dashboard_path": 1795208226.791456
+        },
+        {
+          "payload_id": "9382eeed-b4cb-4f1a-bf95-b349d2b029db",
+          "event_ts_utc": "2026-11-20T20:57:03.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208232.0501697,
+          "seen_dashboard_path": 1795208226.791456
+        },
+        {
+          "payload_id": "06dce23f-5826-420a-a4b0-b2454bfb0d29",
+          "event_ts_utc": "2026-11-20T20:57:03.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208232.0501697,
+          "seen_dashboard_path": 1795208226.791456
+        },
+        {
+          "payload_id": "880079e4-c844-4114-89c1-62f8d1195ff1",
+          "event_ts_utc": "2026-11-20T20:57:01.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208228.2866316,
+          "seen_dashboard_path": 1795208225.5535285
+        },
+        {
+          "payload_id": "65cb3a10-c6b9-42c2-95c2-caa7d0a5d0e3",
+          "event_ts_utc": "2026-11-20T20:57:01.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208228.2866316,
+          "seen_dashboard_path": 1795208225.5535285
+        },
+        {
+          "payload_id": "27ebe072-178b-4515-9293-58ae818ddcc7",
+          "event_ts_utc": "2026-11-20T20:57:01.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208228.2866316,
+          "seen_dashboard_path": 1795208225.5535285
+        },
+        {
+          "payload_id": "b65b83a5-0799-4271-9a22-cb7a3c33fcf2",
+          "event_ts_utc": "2026-11-20T20:56:59.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208228.2866316,
+          "seen_dashboard_path": 1795208223.2820446
+        },
+        {
+          "payload_id": "c3284333-5dc6-42c6-8561-92c64bce6e0f",
+          "event_ts_utc": "2026-11-20T20:56:59.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208228.2866316,
+          "seen_dashboard_path": 1795208223.2820446
+        },
+        {
+          "payload_id": "b1c0a849-7ae4-4e98-8029-047d8250076f",
+          "event_ts_utc": "2026-11-20T20:56:59.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208228.2866316,
+          "seen_dashboard_path": 1795208223.2820446
+        },
+        {
+          "payload_id": "38563db1-d5f9-4b97-9f92-7720a68e4cb5",
+          "event_ts_utc": "2026-11-20T20:56:57.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208224.8109279,
+          "seen_dashboard_path": 1795208221.8607264
+        },
+        {
+          "payload_id": "2a6c8f15-aed3-471a-96a6-0e988e98a22a",
+          "event_ts_utc": "2026-11-20T20:56:57.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208224.8109279,
+          "seen_dashboard_path": 1795208221.8607264
+        },
+        {
+          "payload_id": "59da72d7-03c2-45b4-a71e-808906adeca2",
+          "event_ts_utc": "2026-11-20T20:56:57.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208224.8109279,
+          "seen_dashboard_path": 1795208221.8607264
+        },
+        {
+          "payload_id": "aa0e6fa5-8fc1-4293-8932-66b4d5bdcbb5",
+          "event_ts_utc": "2026-11-20T20:56:55.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208220.7316756,
+          "seen_dashboard_path": 1795208219.0176425
+        },
+        {
+          "payload_id": "605f3ca7-7fa7-4734-a6ae-b724db841742",
+          "event_ts_utc": "2026-11-20T20:56:55.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208220.7316756,
+          "seen_dashboard_path": 1795208219.0176425
+        },
+        {
+          "payload_id": "a1173134-5c79-4b07-b994-d9cc0cc85b34",
+          "event_ts_utc": "2026-11-20T20:56:55.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208220.7316756,
+          "seen_dashboard_path": 1795208219.0176425
+        },
+        {
+          "payload_id": "446ccc38-7c9f-4484-bfc7-f003ad402f39",
+          "event_ts_utc": "2026-11-20T20:56:53.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208220.7316756,
+          "seen_dashboard_path": 1795208217.6534214
+        },
+        {
+          "payload_id": "d976c81f-9aa8-4281-a19d-7fcdf77ad559",
+          "event_ts_utc": "2026-11-20T20:56:53.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208220.7316756,
+          "seen_dashboard_path": 1795208217.6534214
+        },
+        {
+          "payload_id": "71a27a31-09b8-4e83-98c8-44c5564cb547",
+          "event_ts_utc": "2026-11-20T20:56:53.028000Z",
+          "window_s": 2,
+          "seen_api": 1795208220.7316756,
+          "seen_dashboard_path": 1795208217.6534214
+        },
+        {
+          "payload_id": "418265bd-9421-4694-a98b-677886d21338",
+          "event_ts_utc": "2026-11-20T20:56:51.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208217.3723464,
+          "seen_dashboard_path": 1795208214.973807
+        },
+        {
+          "payload_id": "d34aa745-99aa-43ed-a50b-972f82c4382e",
+          "event_ts_utc": "2026-11-20T20:56:51.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208217.3723464,
+          "seen_dashboard_path": 1795208214.973807
+        },
+        {
+          "payload_id": "93080881-f334-425f-96f1-3cc99dfc8552",
+          "event_ts_utc": "2026-11-20T20:56:51.029000Z",
+          "window_s": 2,
+          "seen_api": 1795208217.3723464,
+          "seen_dashboard_path": 1795208214.973807
+        }
+      ],
+      "dashboard_snapshots_seen": 57,
+      "dashboard_fetch_s": {
+        "n": 56,
+        "min": 0.996,
+        "p50": 1.32,
+        "p95": 1.982,
+        "p99": 3.716,
+        "max": 3.716
+      }
+    },
+    "alert": {
+      "from_spike_to_incident_created_s": 3.612,
+      "from_spike_to_api_visible_s": 8.664,
+      "from_spike_to_dashboard_path_s": 4.955,
+      "alerts_grouped": 3,
+      "first_signal": {
+        "signal": "cpu",
+        "method": "threshold fallback",
+        "value": 98.7,
+        "event_ts_utc": "2026-11-20T20:59:07.140000Z",
+        "alert_delay_s": 3.6125569343566895
+      },
+      "target_s": 15.0,
+      "verdict": "PASS",
+      "host": "measure-alert-3620",
+      "source_id": "src_0ffc64c0eda2",
+      "spike_started_epoch": 1795208347.1403632,
+      "spike_value_pct": 99.0
+    },
+    "anomaly": {
+      "from_spike_to_incident_created_s": 5.539,
+      "from_spike_to_api_visible_s": 7.889,
+      "from_spike_to_dashboard_path_s": 6.505,
+      "alerts_grouped": 1,
+      "first_signal": {
+        "signal": "cpu",
+        "method": "rolling median/MAD",
+        "value": 69.9,
+        "event_ts_utc": "2026-11-20T21:00:19.338000Z",
+        "alert_delay_s": 2.5380311012268066
+      },
+      "target_s": 15.0,
+      "verdict": "PASS",
+      "host": "measure-anom-11bf",
+      "source_id": "src_ede053eb4f36",
+      "spike_started_epoch": 1795208416.336555,
+      "spike_value_pct": 70.0
+    },
+    "offline": {
+      "from_outage_start_to_Poor_s": 38.438,
+      "from_last_heartbeat_to_Poor_s": 41.178,
+      "from_outage_start_to_Fair_s": 27.853,
+      "from_outage_start_to_Poor_on_dashboard_path_s": 38.185,
+      "target_s": 60.0,
+      "verdict": "PASS",
+      "collector": "col-measure-off-be90",
+      "last_heartbeat_epoch": 1795208439.0249305,
+      "outage_started_epoch": 1795208441.765657
+    },
+    "delivery": {
+      "host": "measure-del-10cb",
+      "outage_duration_s": 15.0,
+      "buffered_when_link_came_back": 63,
+      "replay_seconds_after_reconnect": 10.33,
+      "all_payloads_in_window_marked_sent": true,
+      "payloads_created_in_window": 137,
+      "missing_at_platform": 0,
+      "missing_examples": [],
+      "duplicate_rows_at_platform": 0,
+      "duplicate_attempts_rejected_by_platform": 0,
+      "verdict": "PASS"
+    }
+  },
+  "targets": {
+    "dashboard_p95_s": 10.0,
+    "alert_s": 15.0,
+    "offline_s": 60.0
+  }
+}
