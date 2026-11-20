@@ -21,7 +21,9 @@ param(
   [switch]$NoSimulator,
   [switch]$NoDashboard,
   [switch]$Restart,
-  [switch]$Status
+  [switch]$Status,
+  [switch]$Tls,               # HTTPS between collector and SaaS, with a private dev CA (needs: pip install cryptography)
+  [switch]$NoHostTelemetry    # do not read this machine's CPU, memory, disk, bandwidth or probe the network
 )
 
 # Windows PowerShell 5.1 turns any stderr text from a native command into a hard error under "Stop",
@@ -55,8 +57,14 @@ function Get-Running {
 
 function Wait-Url($url, $seconds = 40) {
   $end = (Get-Date).AddSeconds($seconds)
+  $uri = [Uri]$url
   while ((Get-Date) -lt $end) {
-    try { Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2 | Out-Null; return $true } catch { Start-Sleep -Milliseconds 700 }
+    if ($uri.Scheme -eq "https") {
+      # A private dev CA is not in Windows' trust store, so check that the TLS port accepts connections.
+      try { $c = New-Object Net.Sockets.TcpClient; $c.Connect($uri.Host, $uri.Port); $c.Close(); return $true } catch { Start-Sleep -Milliseconds 700 }
+    } else {
+      try { Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2 | Out-Null; return $true } catch { Start-Sleep -Milliseconds 700 }
+    }
   }
   return $false
 }
@@ -120,7 +128,29 @@ $env:REGION = "in"
 if (-not $env:SAAS_AUTH_JSON) {
   $env:SAAS_AUTH_JSON = '{"collectors":{"key-acme-1":{"tenant":"t-acme","region":"in","collector":"col-blr-01","secret":"dev-secret-acme"}},"dashboard":{"dash-acme":{"tenant":"t-acme","region":"in","role":"operator"}}}'
 }
-$saasUrl = if ($env:SAAS_URL) { $env:SAAS_URL } else { "http://127.0.0.1:8000" }
+$scheme = "http"
+$tlsMarker = Join-Path $data "run.tls"
+Remove-Item $tlsMarker -Force -ErrorAction SilentlyContinue
+$tlsArgs = @()
+if ($Tls) {
+  & $python -c "import cryptography" 2>&1 | Out-Null
+  if ($LASTEXITCODE -ne 0) { Write-Host "-Tls needs the 'cryptography' package: pip install cryptography" -ForegroundColor Red; exit 1 }
+  & $python -m collector.devcerts --out (Join-Path $data "certs") | Out-Null
+  $certs = Join-Path $data "certs"
+  $scheme = "https"
+  $tlsArgs = @("--ssl-keyfile", (Join-Path $certs "server.key"), "--ssl-certfile", (Join-Path $certs "server.pem"))
+  $env:SAAS_CA_FILE = Join-Path $certs "ca.pem"
+  $env:REQUIRE_TLS = "1"
+  $env:NODE_EXTRA_CA_CERTS = $env:SAAS_CA_FILE          # lets the dashboard's dev proxy trust the dev CA
+  $env:SAAS_PROXY_TARGET = "https://127.0.0.1:8000"
+  Set-Content $tlsMarker $env:SAAS_CA_FILE -Encoding ascii  # demo.ps1 reads this to talk HTTPS
+} else {
+  Remove-Item Env:SAAS_CA_FILE, Env:REQUIRE_TLS -ErrorAction SilentlyContinue
+}
+$saasUrl = if ($env:SAAS_URL -and -not $Tls) { $env:SAAS_URL } else { "${scheme}://127.0.0.1:8000" }
+$env:HOST_TELEMETRY = if ($NoHostTelemetry) { "0" } else { "1" }
+# Services worth watching on this machine, reported as service_up (override with $env:SERVICE_CHECKS).
+if (-not $env:SERVICE_CHECKS) { $env:SERVICE_CHECKS = "saas-1=127.0.0.1:8000,saas-2=127.0.0.1:8001,postgres=127.0.0.1:$pgPort" }
 
 $started = New-Object System.Collections.ArrayList
 function Start-Svc($name, $file, $argList, $url, $workdir = $root) {
@@ -132,8 +162,8 @@ function Start-Svc($name, $file, $argList, $url, $workdir = $root) {
 }
 
 Write-Host "Starting services ..."
-$env:REPLICA_ID = "1"; Start-Svc "saas-1" $python @("-m", "uvicorn", "saas.main:app", "--port", "8000") "http://127.0.0.1:8000/healthz"
-$env:REPLICA_ID = "2"; Start-Svc "saas-2" $python @("-m", "uvicorn", "saas.main:app", "--port", "8001") "http://127.0.0.1:8001/healthz"
+$env:REPLICA_ID = "1"; Start-Svc "saas-1" $python (@("-m", "uvicorn", "saas.main:app", "--port", "8000") + $tlsArgs) "${scheme}://127.0.0.1:8000/healthz"
+$env:REPLICA_ID = "2"; Start-Svc "saas-2" $python (@("-m", "uvicorn", "saas.main:app", "--port", "8001") + $tlsArgs) "${scheme}://127.0.0.1:8001/healthz"
 
 $env:SAAS_URL = $saasUrl
 $env:DATA_DIR = (Join-Path $data "collector")
@@ -167,8 +197,8 @@ Write-Host ""
 if ($ok) { Write-Host "Stack is up." -ForegroundColor Green } else { Write-Host "Some services did not start." -ForegroundColor Red }
 @(
   @{ n = "Dashboard"; u = "http://127.0.0.1:5173" },
-  @{ n = "SaaS replica 1 / 2"; u = "http://127.0.0.1:8000 and http://127.0.0.1:8001" },
-  @{ n = "Collector"; u = "http://127.0.0.1:8101  (/local/raw, /local/egress, /local/policy, /local/pipeline)" },
+  @{ n = "SaaS replica 1 / 2"; u = "${scheme}://127.0.0.1:8000 and ${scheme}://127.0.0.1:8001" + $(if ($Tls) { "  (TLS, CA: data\certs\ca.pem)" } else { "  (plain HTTP)" }) },
+  @{ n = "Collector"; u = "http://127.0.0.1:8101  (/local/raw, /local/egress, /local/policy, /local/pipeline, /local/host)" },
   @{ n = "Logs"; u = "data\logs" }
 ) | ForEach-Object { "{0,-20} {1}" -f $_.n, $_.u }
 Write-Host ""

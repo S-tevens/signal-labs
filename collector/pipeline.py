@@ -45,12 +45,15 @@ class Pipeline:
 
     # ---- intake ----
     def process(self, line: str) -> dict:
+        """Text sent to /ingest, in any supported format."""
         line = line.strip()
         if not line:
             return {"status": "empty"}
-        self.counters["received"] += 1
+        return self.process_record(parse_line(line), line)
 
-        record = parse_line(line)
+    def process_record(self, record: dict, line: str) -> dict:
+        """A normalized record (from a parser or a source such as host telemetry). `line` is the local raw text."""
+        self.counters["received"] += 1
         fmt = record.get("format")
         self.counters[f"format:{fmt}"] += 1
         _, rules = redact(line, self.policy.redaction_rules)  # which rules fire; the raw line itself stays local

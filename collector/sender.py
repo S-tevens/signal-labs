@@ -5,12 +5,20 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
+import ssl
 from datetime import datetime, timezone
 
 import httpx
 
 from .config import COLLECTOR_VERSION, Config
 from .outbox import LocalStore
+
+log = logging.getLogger("collector.sender")
+
+
+class TlsRequiredError(RuntimeError):
+    """REQUIRE_TLS is on but the SaaS URL is not https. The collector refuses to start rather than send in clear."""
 
 
 def sign(secret: str, body: bytes) -> str:
@@ -24,6 +32,30 @@ class Sender:
         self.link_up = True  # demo switch for the "SaaS outage" scenario
         self.last_send_utc: str | None = None
         self.last_error: str | None = None
+        self.https = cfg.saas_url.lower().startswith("https://")
+        if cfg.require_tls and not self.https:
+            raise TlsRequiredError(f"REQUIRE_TLS=1 but SAAS_URL is {cfg.saas_url!r}; use an https:// URL")
+        if not self.https:
+            log.warning("SaaS link is plain HTTP: payloads are authenticated and signed but NOT encrypted")
+
+    @property
+    def transport(self) -> str:
+        if not self.https:
+            return "http (NOT ENCRYPTED)"
+        return "https (server verified against " + (self.cfg.saas_ca_file or "the system trust store") + ")"
+
+    def make_client(self) -> httpx.AsyncClient:
+        """HTTPS always verifies the server certificate and name. There is deliberately no switch to turn that off.
+
+        With SAAS_CA_FILE set, only that CA is trusted (the system store is not consulted), so a certificate from any
+        other authority is rejected. TLS 1.2 is the minimum.
+        """
+        verify: ssl.SSLContext | bool = True
+        if self.https:
+            ctx = ssl.create_default_context(cafile=self.cfg.saas_ca_file or None)
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            verify = ctx
+        return httpx.AsyncClient(timeout=5.0, verify=verify)
 
     def _headers(self, body: bytes) -> dict:
         return {
@@ -103,7 +135,7 @@ class Sender:
             self.last_error = str(exc)[:200]
 
     async def run(self) -> None:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with self.make_client() as client:
             last_hb = 0.0
             loop = asyncio.get_running_loop()
             while True:

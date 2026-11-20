@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import socket
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,5 +28,19 @@ class Config:
     policy_file: Path = field(
         default_factory=lambda: Path(os.getenv("POLICY_FILE", str(Path(__file__).with_name("policy.yaml"))))
     )
+    # Real host telemetry (collector/sources/host.py).
+    host_telemetry: bool = field(default_factory=lambda: os.getenv("HOST_TELEMETRY", "1") != "0")
+    host_label: str = field(default_factory=lambda: os.getenv("HOST_LABEL", "") or socket.gethostname())
+    host_interval_s: float = field(default_factory=lambda: float(os.getenv("HOST_INTERVAL_S", "2")))
+    probe_interval_s: float = field(default_factory=lambda: float(os.getenv("PROBE_INTERVAL_S", "5")))
+    probe_attempts: int = field(default_factory=lambda: int(os.getenv("PROBE_ATTEMPTS", "4")))
+    probe_timeout_s: float = field(default_factory=lambda: float(os.getenv("PROBE_TIMEOUT_S", "1.0")))
+    probe_targets: str = field(default_factory=lambda: os.getenv("PROBE_TARGETS", ""))  # "host:port,host:port"
+    service_checks: str = field(default_factory=lambda: os.getenv("SERVICE_CHECKS", ""))  # "name=host:port,..."
+    disk_paths: str = field(default_factory=lambda: os.getenv("DISK_PATHS", ""))  # default: the system drive or /
+    source_tz: str = field(default_factory=lambda: os.getenv("SOURCE_TZ", "UTC"))  # IANA name, e.g. Asia/Kolkata
+    # Transport security (E3).
+    saas_ca_file: str = field(default_factory=lambda: os.getenv("SAAS_CA_FILE", ""))  # CA that signed the SaaS cert
+    require_tls: bool = field(default_factory=lambda: os.getenv("REQUIRE_TLS", "0") == "1")
     batch_size: int = 50
     raw_retention_s: int = field(default_factory=lambda: int(os.getenv("RAW_RETENTION_S", "86400")))
