@@ -5,6 +5,8 @@ Everything runs locally on Windows PowerShell with dev credentials. No Docker.
 | Script | What it does |
 |---|---|
 | `run-local.ps1` | Starts Postgres (port 5433), runs the migration, then two SaaS replicas, the collector, the simulator and the dashboard. Flags: `-Tls`, `-Profile default|realtime`, `-NoSimulator`, `-NoHostTelemetry`, `-NoProxy`, `-NoDashboard`, `-Restart`, `-Status` |
+| `rehearse.ps1` | Runs every scenario and the proof checks in judge order with pauses, and writes a pass/fail table with timestamps. See [Rehearsal](#rehearsal) |
+| `open-demo.ps1` | Opens the egress panel and the dashboard side by side |
 | `verify.ps1` | Proof tools: the egress log equals what the SaaS stored, and planted canary secrets appear nowhere on the platform. PASS or FAIL. See [Proving the privacy claim](#proving-the-privacy-claim) |
 | `measure.ps1` | Measures the real-time targets and delivery from timestamps and writes an evidence file. See [Measuring the real-time targets](#measuring-the-real-time-targets) |
 | `lb.py` | The failover proxy that `run-local.ps1` puts in front of the two replicas (port 8080). Round robin, exact request bytes, automatic failover and recovery. Run it by hand with `python scripts\lb.py --help` |
@@ -87,6 +89,18 @@ Open `http://127.0.0.1:8101/local/ui` (collector, this machine only). Pick a pay
 
 - The digest is fixed when the payload is queued. If the stored body ever differs from it, that payload is not sent and is closed out as rejected, with the reason on the strip.
 - Hold and release answer only to this machine, only with a Host of `localhost`, `127.0.0.1` or `::1`, and only with an `X-Requested-With: local-ui` header that the page sends. Another site open in your browser cannot set that header without a preflight the collector never answers.
+
+## Rehearsal
+
+```
+.\scriptsehearse.ps1                    # 14 steps, about 8 minutes, 10 s between steps
+.\scriptsehearse.ps1 -Pause 20          # longer pauses so incidents separate
+.\scriptsehearse.ps1 -WithMeasure       # also the timing measurements (about 6 more minutes)
+.\scriptsehearse.ps1 -Only secret,hold  # just these steps
+.\scripts\open-demo.ps1                   # egress panel left, dashboard right
+```
+
+Needs the stack running. A step is FAIL on a non-zero exit or a failure word in its output, PASS if it printed a verdict, and "ran" if it only shows you something to look at. The run writes `docs\p3\evidenceehearsal-<time>.md` with the table and every step's output, and exits 1 if anything failed.
 
 ## Proving the privacy claim
 
@@ -185,6 +199,7 @@ eplay.py play simulator	imelines\demo.json [--speed 5]` plays a scripted five-mi
 - `enroll` has an admin issue a one-time token, starts a brand-new collector (port 8102, no keys configured) that enrolls itself and starts reporting, shows the platform seeing it online, and shows the same token refused a second time. Needs the stack from `run-local.ps1` (it includes a dev admin token); use `-Tls` so the token and credentials travel encrypted.
 - `flood` starts a collector (port 8103) with tight limits and no reachable platform, sends 40,000 lines, an oversize line and a 3 MiB request, then shows the caps holding, the counted losses and the loss event.
 - `tenants` uses a second dev tenant (`t-globex`, key `key-globex-1`, dashboard token `dash-globex`) to check: each token sees only its own fleet, observations and metrics; a cross-tenant object fetch is 404; a payload naming the other tenant or signed with its key is refused; and an extra field, a secret-like summary, an unknown metric and a non-UTC time are each rejected with the platform's reason. Prints PASS or FAIL per check.
+- Each payload's `health_state` is now the collector's own verdict (`collector/health.py`, `health.yaml`): the same thresholds and rules as the platform, so a CPU spike is reported Poor by both. A test fails if the two threshold files drift apart.
 - The heartbeat carries the collector process's own CPU, memory and data-disk share (`cpu_percent`, `memory_percent`, `disk_percent`, the only names the platform contract allows) and a `config_hash` that fingerprints every non-secret setting plus the policy and mapping files, so it changes when any of them changes. Uptime is not sent: the contract has no field for it.
 - `remediation` drives the SaaS action lifecycle on the latest incident: a policy check that refuses an action on a different source, then propose, approve, roll back, the audit trail, and a blocked invalid transition. It is a simulation: nothing is executed.
 - Scenarios on the same host within about 2 minutes join one incident, because correlation is per source and time window.
