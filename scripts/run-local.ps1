@@ -130,7 +130,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "Migration failed." -ForegroundColor Red; 
 $env:DATABASE_URL = "postgresql://signal_app:dev_app_password@localhost:$pgPort/signal"
 $env:REGION = "in"
 if (-not $env:SAAS_AUTH_JSON) {
-  $env:SAAS_AUTH_JSON = '{"collectors":{"key-acme-1":{"tenant":"t-acme","region":"in","collector":"col-blr-01","secret":"dev-secret-acme"}},"dashboard":{"dash-acme":{"tenant":"t-acme","region":"in","role":"operator"},"dash-admin":{"tenant":"t-acme","region":"in","role":"admin"}}}'
+  $env:SAAS_AUTH_JSON = '{"collectors":{"key-globex-1":{"tenant":"t-globex","region":"in","collector":"col-globex-01","secret":"dev-secret-globex"},"key-acme-1":{"tenant":"t-acme","region":"in","collector":"col-blr-01","secret":"dev-secret-acme"}},"dashboard":{"dash-globex":{"tenant":"t-globex","region":"in","role":"operator"},"dash-acme":{"tenant":"t-acme","region":"in","role":"operator"},"dash-admin":{"tenant":"t-acme","region":"in","role":"admin"}}}'
 }
 $scheme = "http"
 $envFile = Join-Path $data "run.env.json"   # how demo.ps1 finds the SaaS entry point and CA
