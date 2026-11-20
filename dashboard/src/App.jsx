@@ -35,6 +35,7 @@ import {
   egress,
 } from "./data.js";
 import { LIVE, useLiveData } from "./api.js";
+import { ObjectExplorer, HealthHistory, IncidentWorkspace } from "./Platform.jsx";
 
 // Live data from the SaaS when a dashboard token is configured, labelled demo data otherwise.
 const DataContext = React.createContext(null);
@@ -53,6 +54,8 @@ const pages = {
     "Performance proof",
     "Delivery evidence, measured against your hackathon targets.",
   ],
+  objects: ["Object explorer", "Explore linked metadata across your monitored environment."],
+  history: ["Health history", "Review collector health changes and their recorded reasons."],
   egress: [
     "Egress proof",
     "Inspect the boundary between private records and approved metadata.",
@@ -62,6 +65,8 @@ const nav = [
   { id: "fleet", label: "Fleet overview", icon: Layers3 },
   { id: "incidents", label: "Incidents", icon: Activity },
   { id: "proof", label: "Performance proof", icon: ShieldCheck },
+  { id: "objects", label: "Object explorer", icon: Database },
+  { id: "history", label: "Health history", icon: Clock3 },
   { id: "egress", label: "Local egress", icon: FileJson },
 ];
 const regionName = { in: "India", eu: "Europe" };
@@ -698,7 +703,7 @@ function Proof() {
   const m = live
     ? {
         dash: proof?.p95_dashboard_latency_s,
-        alert: proof?.p95_alert_delay_s,
+        alert: proof?.max_alert_delay_s,
         offline: proof?.offline_detection_s,
         received: proof?.received_unique,
         dup: proof?.stored_duplicates,
@@ -727,7 +732,7 @@ function Proof() {
         <CircleHelp size={18} />
         <span>
           {live
-            ? "Measured by the SaaS from payload timestamps. Dashboard latency needs render acknowledgements from this page, and a blank value means that measurement has not happened yet. Sent counts live only on the collector."
+            ? "Recent five-minute window, measured using payload and client-reported timestamps. Clock skew affects latency; a blank value means that measurement has not happened yet. Sent counts live only on the collector."
             : "These are illustrative demo results. Connect timestamped stream evidence before presenting performance claims."}
         </span>
       </div>
@@ -1152,15 +1157,6 @@ function Dashboard() {
             {nav.map((n) => <a key={n.id} href={`#/${n.id}`} className={page === n.id ? 'active' : ''} aria-current={page === n.id ? 'page' : undefined}>{n.label}{n.id === 'incidents' && <span className="nav-count">{incidents.filter(i => region === 'all' || i.region === region).length}</span>}</a>)}
             <a className="nav-cta" href="#/incidents">Review incidents <span>{incidents.filter(i => region === 'all' || i.region === region).length}</span></a>
           </nav>
-          {mode === "demo" && (
-            <div className="notice">
-              <CircleHelp size={18} />
-              <span>
-                Showing labelled demo data. Set VITE_DASHBOARD_TOKEN (see
-                .env.example) to connect to the SaaS.
-              </span>
-            </div>
-          )}
           {mode === "live" && status === "loading" && (
             <div className="notice">
               <RefreshCw size={18} />
@@ -1193,6 +1189,8 @@ function Dashboard() {
             />
           )}
           {page === "proof" && <Proof />}
+          {page === "objects" && <ObjectExplorer />}
+          {page === "history" && <HealthHistory />}
           {page === "egress" && <Egress notify={setToast} />}
           <footer>
             <span>
@@ -1225,7 +1223,7 @@ function Dashboard() {
               <X size={20} />
             </button>
             <IconBox icon={Sparkles} />
-            <h2 id="guide-title">Your demo, in four views.</h2>
+            <h2 id="guide-title">Your platform, in six views.</h2>
             <p>
               Start with fleet health, inspect an incident, check delivery
               evidence, then explain the privacy boundary.
@@ -1262,10 +1260,12 @@ function Detail({ detail, close }) {
     const previous = document.activeElement;
     closeRef.current?.focus();
     const trap = (e) => {
-      if (e.key === "Tab") {
-        e.preventDefault();
-        closeRef.current?.focus();
-      }
+      if (e.key !== "Tab") return;
+      const drawer = closeRef.current?.closest('[role="dialog"]');
+      const controls = [...(drawer?.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])') || [])];
+      if (!controls.length) return;
+      if (e.shiftKey && document.activeElement === controls[0]) { e.preventDefault(); controls.at(-1).focus(); }
+      if (!e.shiftKey && document.activeElement === controls.at(-1)) { e.preventDefault(); controls[0].focus(); }
     };
     document.addEventListener("keydown", trap);
     return () => {
@@ -1369,6 +1369,7 @@ function Detail({ detail, close }) {
               <span>Heuristic confidence</span>
               <strong>{item.confidence}</strong>
             </div>
+            <IncidentWorkspace incidentId={item.id} mode={mode} />
             <div className="notice">
               <CircleHelp size={17} />
               <span>

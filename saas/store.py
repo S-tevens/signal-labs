@@ -12,7 +12,9 @@ class DB:
     def __init__(self, conn): self.conn=conn
     def execute(self, sql, params=()): return self.conn.execute(sql.replace('?', '%s'),params)
 class Store:
-    def __init__(self, database_url=None): self.url=database_url or os.getenv('DATABASE_URL','')
+    def __init__(self, database_url=None, region=None):
+        self.url=database_url or os.getenv('DATABASE_URL','')
+        self.region=region
     def check(self):
         if not self.url: raise RuntimeError('DATABASE_URL is required')
         import psycopg
@@ -20,6 +22,10 @@ class Store:
             role=db.execute('SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user').fetchone()
             if any(role): raise RuntimeError('Application role must not have superuser or BYPASSRLS privileges')
             db.execute('SELECT 1 FROM signal.payloads LIMIT 1')
+            if self.region:
+                db.execute('INSERT INTO signal.region_binding(singleton,region) VALUES (1,%s) ON CONFLICT(singleton) DO NOTHING',(self.region,))
+                bound=db.execute('SELECT region FROM signal.region_binding WHERE singleton=1').fetchone()[0]
+                if bound != self.region: raise RuntimeError('Database belongs to a different region')
     @contextmanager
     def connect(self,tenant):
         import psycopg

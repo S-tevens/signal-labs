@@ -13,3 +13,5 @@ metrics:
   bandwidth: {floor: 1}
   connectivity: {inverse: true, good: 1, fair: 0.5, poor: 0, floor: 0.1}
   availability: {inverse: true, good: 1, fair: 0.5, poor: 0, floor: 0.1}
+# Repeated anomalous event windows required before raising a baseline alert.
+anomaly_persistence_windows: 2

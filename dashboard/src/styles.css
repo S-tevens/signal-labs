@@ -2466,3 +2466,28 @@ footer { color: #a1aab2; }
   .image-brand { width: 159px; height: 36px; }
   .image-brand img { width: 213px; left: -24px; top: -17px; }
 }
+
+/* Linked metadata and governed simulation workspace. */
+.platform-panel { padding: 24px; }
+.platform-panel h2 { font-size: 1.05rem; }
+.platform-panel > p, .platform-workspace > p, .platform-action > p { color: #73808b; font-size: .84rem; line-height: 1.7; margin: 10px 0 18px; }
+.platform-label, .platform-form label { display: flex; flex-direction: column; gap: 7px; color: #53616d; font-size: .8rem; margin: 14px 0; }
+.platform-label select, .platform-form select, .platform-form input { background: #fff; color: #24313d; border: 1px solid #d8e0e8; padding: 10px 12px; border-radius: 8px; max-width: 360px; font: inherit; }
+.platform-object-list { margin: 20px 0; display: grid; gap: 7px; }
+.platform-list-item { display: flex; justify-content: space-between; gap: 12px; padding: 15px; border-radius: 8px; background: #f6f8fb; color: #2b3743; text-align: left; overflow-wrap: anywhere; }
+.platform-list-item span { color: #5375b7; white-space: nowrap; }
+.platform-object { border: 1px solid #dbe5f0; background: #f7faff; border-radius: 10px; padding: 15px; margin: 16px 0; }
+.platform-object-head { display:flex; align-items: center; justify-content: space-between; gap: 10px; overflow-wrap: anywhere; }
+.platform-object pre { background:#eef3fa; color:#31465c; padding:14px; border-radius:7px; overflow:auto; max-height:320px; font-size:.72rem; line-height:1.5; }
+.platform-links { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.platform-links button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.platform-message { border-radius: 8px; padding: 12px; background: #f1f5fa; color: #61768d; font-size:.8rem; line-height:1.5; margin: 12px 0; }
+.platform-history { display:grid; gap:7px; padding:15px; border-radius:8px; background:#f6f8fb; font-size:.82rem; }
+.platform-history span, .platform-hint { color:#8998a5; font-size:.76rem; overflow-wrap:anywhere; }
+.platform-workspace { border-top:1px solid #e8edf1; margin-top:25px; padding-top:8px; }
+.platform-form { border:1px solid #e1e9f1; border-radius:10px; padding:15px; margin:16px 0; }
+.platform-form label { margin-top:0; }
+.platform-form button:disabled, .platform-links button:disabled { opacity:.5; cursor:not-allowed; }
+.platform-action { border:1px solid #e1e9f1; border-radius:10px; padding:15px; margin:12px 0; overflow-wrap:anywhere; }
+.platform-action strong { font-size:.85rem; }
+.platform-audit { padding-left:20px; color:#84909b; font-size:.73rem; line-height:1.8; }

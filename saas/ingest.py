@@ -33,7 +33,15 @@ def process(db,p,config,now=None):
         count(db,'duplicate_attempts'); return 'duplicate' if existing['data']==dump(p) else 'conflict'
     if metric:
         history=[r['value'] for r in db.execute('SELECT value FROM payloads WHERE collector=? AND source=? AND metric=? AND ts<? ORDER BY ts DESC LIMIT ?',(p['collector_id'],p['source_id'],name,p['event_ts_utc'],config['baseline_window']))]
-        report=worse(report,metric_state(metric,config)); signal=detect(metric,history,config)
+        report=worse(report,metric_state(metric,config)); detected=detect(metric,history,config)
+        # Update persistence only in event-time order. Late observations are stored
+        # but cannot rewrite or reset the live detector's current streak.
+        pending=db.execute('SELECT last_ts,consecutive FROM anomaly_pending WHERE collector=? AND source=? AND metric=?',(p['collector_id'],p['source_id'],name)).fetchone()
+        if pending is None or p['event_ts_utc']>pending['last_ts']:
+            streak=(pending['consecutive'] if pending else 0)+1 if detected else 0
+            db.execute('INSERT INTO anomaly_pending(collector,source,metric,last_ts,consecutive) VALUES(?,?,?,?,?) ON CONFLICT(tenant_id,collector,source,metric) DO UPDATE SET last_ts=excluded.last_ts,consecutive=excluded.consecutive',(p['collector_id'],p['source_id'],name,p['event_ts_utc'],streak))
+            if detected and streak==config.get('anomaly_persistence_windows',2):
+                signal={**detected,'persistence_windows':streak,'why':detected['why']+f' for {streak} consecutive windows'}
         if not signal and metric_state(metric,config)=='Poor': signal={'signal':name,'value':metric['value'],'why':f'{name} breached configured critical threshold','severity':'critical','method':'threshold fallback'}
     elif event:
         category=event['category'].lower(); failed=category in {'failed_login','auth_failure','authentication_failure','login_failure','failed_logins','auth_failed','auth_failure_burst'}

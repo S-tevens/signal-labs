@@ -18,11 +18,12 @@ const POLL_MS = 3000;
 const WINDOW_MS = 30 * 60 * 1000; // /v1/metrics returns oldest-first and is capped, so bound the window
 const METRICS = { cpu_pct: "cpu", mem_pct: "memory", latency_ms: "latency", packet_loss_pct: "loss" };
 
-async function request(path, { signal, method = "GET" } = {}) {
+export async function request(path, { signal, method = "GET", body } = {}) {
   const res = await fetch(`${BASE}${path}`, {
     method,
     signal,
-    headers: { Authorization: `Bearer ${TOKEN}` },
+    headers: { Authorization: `Bearer ${TOKEN}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (!res.ok) throw new Error(`${path.split("?")[0]} returned HTTP ${res.status}`);
   return res.json();
@@ -96,7 +97,7 @@ function mapCollectors(fleet, metricsByName) {
 }
 
 const SEVERITY = { critical: "Critical", high: "High" };
-const CATEGORY = { cpu: "Performance", memory: "Performance", latency: "Performance", loss: "Network", auth: "Security", offline: "Availability" };
+const CATEGORY = { cpu: "Performance", memory: "Performance", latency: "Performance", loss: "Network", auth: "Security", failed_login: "Security", packet_loss: "Network", offline: "Availability" };
 
 function mapIncident(i, regionOf) {
   const rec = i.recommendation || {};
@@ -117,7 +118,7 @@ function mapIncident(i, regionOf) {
   const reasons = [...new Set(String(rec.why || "").split("; ").filter(Boolean))];
   const first = raw[0]?.signal;
   return {
-    id: String(i.id).slice(0, 8),
+    id: String(i.id),
     title: rec.likely_cause || "Correlated incident",
     severity: SEVERITY[i.severity] || "Medium",
     collector: i.collector_id,
@@ -139,7 +140,7 @@ async function snapshot(signal) {
   const [fleet, incidents, proof, ...metricRows] = await Promise.all([
     request("/v1/fleet", { signal }),
     request("/v1/incidents", { signal }),
-    request("/v1/proof", { signal }),
+    request("/v1/proof?window_s=300", { signal }),
     ...names.map((n) => request(`/v1/metrics?name=${n}&from=${from}&limit=10000`, { signal })),
   ]);
   const metricsByName = Object.fromEntries(names.map((n, i) => [n, metricRows[i]]));
@@ -173,7 +174,7 @@ export function useLiveData() {
         for (const id of data.newest) {
           if (acked.current.has(id)) continue;
           acked.current.add(id);
-          request(`/v1/proof/render?payload_id=${encodeURIComponent(id)}`, { method: "POST" }).catch(() => {});
+          request(`/v1/proof/render?payload_id=${encodeURIComponent(id)}`, { method: "POST" }).catch(() => { acked.current.delete(id); });
         }
       });
     } catch (e) {
@@ -185,12 +186,38 @@ export function useLiveData() {
   useEffect(() => {
     if (!LIVE) return undefined;
     const ctrl = new AbortController();
-    load(ctrl.signal);
-    const timer = setInterval(() => load(ctrl.signal), POLL_MS);
-    return () => {
-      ctrl.abort();
-      clearInterval(timer);
+    let reconnectTimer;
+    let inFlight = false;
+    const refresh = async () => {
+      if (inFlight || ctrl.signal.aborted) return;
+      inFlight = true;
+      try { await load(ctrl.signal); } finally { inFlight = false; }
     };
+    const connect = async () => {
+      try {
+        const res = await fetch(`${BASE}/v1/stream`, { headers: { Authorization: `Bearer ${TOKEN}` }, signal: ctrl.signal });
+        if (!res.ok || !res.body) throw new Error(`Stream returned HTTP ${res.status}`);
+        const reader = res.body.getReader(), decoder = new TextDecoder();
+        let pending = '';
+        while (!ctrl.signal.aborted) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          pending += decoder.decode(value, {stream:true}).replace(/\r\n/g, '\n');
+          let end;
+          while ((end = pending.indexOf('\n\n')) >= 0) {
+            const event = pending.slice(0, end); pending = pending.slice(end + 2);
+            if (event.includes('event: snapshot')) refresh();
+          }
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+      }
+      if (!ctrl.signal.aborted) reconnectTimer = setTimeout(connect, 3000);
+    };
+    refresh(); connect();
+    // A bounded fallback keeps proof data current while SSE reconnects.
+    const timer = setInterval(refresh, POLL_MS * 3);
+    return () => { ctrl.abort(); clearInterval(timer); clearTimeout(reconnectTimer); };
   }, [load]);
 
   return { ...state, refresh: () => load() };

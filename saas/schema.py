@@ -12,6 +12,11 @@ class Metric(Strict):
     name: str = Field(pattern=r'^[a-zA-Z0-9_.-]{1,80}$')
     value: float
     unit: str = Field(max_length=24, pattern=r'^[a-zA-Z0-9%/_. -]*$')
+    @model_validator(mode='after')
+    def matching_unit(self):
+        units={'cpu_pct':'%','mem_pct':'%','disk_pct':'%','bandwidth_mbps':'mbps','latency_ms':'ms','packet_loss_pct':'%','service_up':'bool','connectivity_up':'bool'}
+        if self.name in units and self.unit != units[self.name]: raise ValueError('Metric unit does not match name')
+        return self
 class Event(Strict):
     category: str = Field(pattern=r'^[a-zA-Z0-9_.-]{1,80}$')
     severity: Literal['info','warning','critical','low','medium','high','error','debug','warn']

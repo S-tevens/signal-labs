@@ -2,7 +2,7 @@ import asyncio, json, os, time, logging, gzip, io
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 import yaml
@@ -11,10 +11,13 @@ from .auth import Auth
 from .store import Store,utc,epoch,dump,state
 from .ingest import process,refresh
 from .proof import proof
-from .remediation import approve
+from .contract import validate_contract
+from .ontology import REGISTRY, list_objects, object_detail, incident_lineage, payload_lineage
+from .actions import TYPES, list_actions, propose, get_action, transition
+from .enroll import create_token, enroll
 
 def create_app(region=None,database_url=None,auth_config=None,thresholds=None,replica_id=None):
-    region=region or os.getenv('REGION','in'); store=Store(database_url); auth=Auth(region,auth_config); replica_id=replica_id or os.getenv('REPLICA_ID','1')
+    region=region or os.getenv('REGION','in'); store=Store(database_url,region); auth=Auth(region,auth_config,store); replica_id=replica_id or os.getenv('REPLICA_ID','1')
     config=thresholds or yaml.safe_load((Path(__file__).parent/'config/thresholds.yaml').read_text())
     tenants={r['tenant'] for group in ('collectors','dashboard') for r in auth.config.get(group,{}).values() if r['region']==region}
     async def watchdog():
@@ -60,11 +63,21 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
         try: store.check()
         except Exception: raise HTTPException(503,'Database unavailable')
         return {'status':'ok','region':region,'replica_id':replica_id}
+    @app.post('/v1/enrollment-tokens')
+    async def enrollment_token(request:Request):
+        who=auth.dashboard(request); _,data=await body(request)
+        with store.connect(who.tenant) as db: result=create_token(db,who,data)
+        return JSONResponse(result,headers={'Cache-Control':'no-store'})
+    @app.post('/v1/enroll')
+    async def enrollment(request:Request):
+        _,data=await body(request)
+        result=await asyncio.to_thread(enroll,store,region,data)
+        return JSONResponse(result,headers={'Cache-Control':'no-store'})
     @app.post('/v1/ingest')
     async def ingest(request:Request):
         raw,obj=await body(request); who=auth.collector(request,raw); items=obj if isinstance(obj,list) else [obj]
         if not 1<=len(items)<=500: raise HTTPException(422,'Batch must contain 1–500 payloads')
-        payloads=[validate(Payload,item) for item in items]
+        payloads=[validate(Payload,validate_contract(item)) for item in items]
         for p in payloads:
             if (p['tenant_ref'],p['collector_id'],p['region'])!=(who.tenant,who.collector,region): raise HTTPException(403,'Identity mismatch')
             if epoch(p['event_ts_utc'])>time.time()+60: raise HTTPException(422,'Event timestamp in future')
@@ -115,9 +128,10 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
         who=auth.dashboard(request)
         with store.connect(who.tenant) as db: return [{k:v for k,v in r.items() if k!="tenant_id"} for r in db.execute('SELECT * FROM health_history ORDER BY id DESC LIMIT 1000')]
     @app.get('/v1/proof')
-    def evidence(request:Request):
+    def evidence(request:Request,window_s:int|None=None):
         who=auth.dashboard(request)
-        with store.connect(who.tenant) as db:return proof(db)
+        if window_s is not None and not 60<=window_s<=86400: raise HTTPException(422,'window_s must be between 60 and 86400')
+        with store.connect(who.tenant) as db:return proof(db,window_s)
     @app.post('/v1/proof/render')
     def render(request:Request,payload_id:str):
         who=auth.dashboard(request)
@@ -127,8 +141,51 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
         return {'acknowledged':True}
     @app.post('/v1/remediation/{id}/approve')
     def remediation(request:Request,id:str):
+        auth.dashboard(request)
+        raise HTTPException(410,'Use the simulated action proposal and approval lifecycle')
+    @app.get('/v1/ontology')
+    def ontology(request:Request):
+        auth.dashboard(request)
+        return REGISTRY
+    @app.get('/v1/objects/{kind}')
+    def objects(request:Request,kind:str):
         who=auth.dashboard(request)
-        with store.connect(who.tenant) as db:return approve(db,id,who)
+        with store.connect(who.tenant) as db: return list_objects(db,who,kind)
+    @app.get('/v1/objects/{kind}/{ident}')
+    def object_by_id(request:Request,kind:str,ident:str):
+        who=auth.dashboard(request)
+        with store.connect(who.tenant) as db: return object_detail(db,who,kind,ident)
+    @app.get('/v1/lineage/incident/{ident}')
+    def incident_evidence(request:Request,ident:str):
+        who=auth.dashboard(request)
+        with store.connect(who.tenant) as db: return incident_lineage(db,who,ident)
+    @app.get('/v1/lineage/payload/{ident}')
+    def payload_evidence(request:Request,ident:str):
+        who=auth.dashboard(request)
+        with store.connect(who.tenant) as db: return payload_lineage(db,who,ident)
+    @app.get('/v1/actions')
+    def actions_list(request:Request,incident_id:str|None=None):
+        who=auth.dashboard(request)
+        with store.connect(who.tenant) as db: return {'types':TYPES,'actions':list_actions(db,incident_id)}
+    @app.get('/v1/actions/{ident}')
+    def action_get(request:Request,ident:str):
+        who=auth.dashboard(request)
+        with store.connect(who.tenant) as db: return get_action(db,ident)
+    @app.post('/v1/actions/propose')
+    async def action_propose(request:Request):
+        who=auth.dashboard(request); _,data=await body(request)
+        with store.connect(who.tenant) as db: return propose(db,who,data)
+    @app.post('/v1/actions/{ident}/{operation}')
+    def action_transition(request:Request,ident:str,operation:str):
+        who=auth.dashboard(request)
+        with store.connect(who.tenant) as db: return transition(db,who,ident,operation)
+    @app.get('/v1/noise')
+    def noise(request:Request):
+        who=auth.dashboard(request)
+        with store.connect(who.tenant) as db:
+            rows=[json.loads(r['data']) for r in db.execute('SELECT data FROM incidents')]
+            alerts=sum(r.get('alert_count',0) for r in rows); incidents_count=len(rows)
+            return {'alerts':alerts,'incidents':incidents_count,'reduction_ratio':round(1-incidents_count/alerts,4) if alerts else None,'scope':'all retained incidents; correlated alerts only'}
     @app.get('/v1/stream')
     async def stream(request:Request):
         who=auth.dashboard(request)
