@@ -20,7 +20,8 @@ def test_every_collector_payload_validates_under_saas_schema():
         "plain text line",
     ]
     for line in lines:
-        assert pipeline.process(line)["status"] == "queued"
+        assert pipeline.process(line)["status"] == "aggregated"
+    pipeline.flush(force=True)
     sent = store.pending(50)
     assert len(sent) == len(lines)
     for p in sent:

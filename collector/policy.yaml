@@ -1,0 +1,68 @@
+# Collector data policy: what may leave the customer environment, and how each field is marked.
+# This file is data, not code. The collector enforces it on every payload before it is queued,
+# and serves it at GET /local/policy so the egress panel can show it.
+#
+# It is a second gate beside the payload schema (collector/schema.py): the schema says what is
+# *valid*, this says what this customer *allows*. Remove a field or metric here and it stops
+# leaving. A payload that cannot be made policy-compliant is blocked, never sent.
+version: 1
+
+classifications:
+  ALLOWED_METADATA: Plain numbers, identifiers and timestamps. Leaves the environment.
+  PSEUDONYMIZED: Derived from a local identifier with a secret that never leaves; sent as an opaque id.
+  DERIVED_SUMMARY: Computed locally from raw records (counts and categories); template text only.
+  LOCAL_ONLY: Never leaves the customer environment.
+
+# The only top-level payload fields allowed to leave. `required` defaults to true except metric and event.
+fields:
+  payload_id:        {classification: ALLOWED_METADATA, treatment: generated UUID for idempotent delivery}
+  tenant_ref:        {classification: ALLOWED_METADATA, treatment: configured tenant reference}
+  collector_id:      {classification: ALLOWED_METADATA, treatment: configured collector name}
+  source_id:         {classification: PSEUDONYMIZED, treatment: HMAC of the source host with a local secret}
+  region:            {classification: ALLOWED_METADATA, treatment: configured region}
+  event_ts_utc:      {classification: ALLOWED_METADATA, treatment: UTC time of the newest record in the window}
+  source_tz:         {classification: ALLOWED_METADATA, treatment: IANA timezone of the source}
+  window_s:          {classification: ALLOWED_METADATA, treatment: aggregation window length in seconds}
+  metric:            {classification: ALLOWED_METADATA, treatment: window mean (minimum for booleans), required: false}
+  event:             {classification: DERIVED_SUMMARY, treatment: count and category computed locally, required: false}
+  health_state:      {classification: DERIVED_SUMMARY, treatment: local health verdict}
+  collector_version: {classification: ALLOWED_METADATA, treatment: collector build version}
+
+# Which metrics and event categories this customer allows.
+metrics:
+  - cpu_pct
+  - mem_pct
+  - disk_pct
+  - bandwidth_mbps
+  - latency_ms
+  - packet_loss_pct
+  - service_up
+  - connectivity_up
+
+event_categories:
+  - auth_failure
+  - auth_failure_burst
+  - service_state
+  - network_event
+  - security_event
+  - log_event
+
+# Things that exist in raw telemetry and never leave. They stay in the local raw store only.
+local_only:
+  raw_message: {classification: LOCAL_ONLY, treatment: kept in the local raw store; replaced by counts and a template summary}
+  username:    {classification: LOCAL_ONLY, treatment: counted and never sent}
+  email:       {classification: LOCAL_ONLY, treatment: scrubbed and never sent}
+  ip_address:  {classification: LOCAL_ONLY, treatment: never sent as text; a host becomes a pseudonymous source_id}
+  hostname:    {classification: LOCAL_ONLY, treatment: never sent as text; becomes a pseudonymous source_id}
+  credentials: {classification: LOCAL_ONLY, treatment: "passwords, tokens, API keys, JWTs and private keys are scrubbed"}
+
+# Scrubbing rules applied to raw lines (see collector/redact.py for the patterns).
+redaction_rules:
+  - private_key
+  - jwt
+  - aws_key
+  - bearer
+  - password
+  - token
+  - email
+  - ipv4

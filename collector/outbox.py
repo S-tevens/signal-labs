@@ -45,6 +45,11 @@ class LocalStore:
                 CREATE INDEX IF NOT EXISTS outbox_status ON outbox(status, next_attempt_at);
                 """
             )
+            # One payload now summarizes many raw records, so keep all their ids (older databases lack this column).
+            cols = {r["name"] for r in self._db.execute("PRAGMA table_info(outbox)")}
+            if "raw_ids" not in cols:
+                self._db.execute("ALTER TABLE outbox ADD COLUMN raw_ids TEXT NOT NULL DEFAULT '[]'")
+                self._db.commit()
 
     # ---- raw (local only) ----
     def add_raw(self, text: str, redactions: list[str]) -> int:
@@ -69,11 +74,19 @@ class LocalStore:
             return cur.rowcount
 
     # ---- outbox / egress ----
-    def enqueue(self, payload: dict, raw_id: int | None, redactions: list[str]) -> None:
+    def enqueue(self, payload: dict, raw_ids: "list[int] | int | None", redactions: list[str]) -> None:
+        ids = [raw_ids] if isinstance(raw_ids, int) else list(raw_ids or [])
         with self._lock:
             self._db.execute(
-                "INSERT INTO outbox(payload_id, raw_id, body, redactions, created_at) VALUES (?,?,?,?,?)",
-                (payload["payload_id"], raw_id, json.dumps(payload, sort_keys=True), json.dumps(redactions), time.time()),
+                "INSERT INTO outbox(payload_id, raw_id, raw_ids, body, redactions, created_at) VALUES (?,?,?,?,?,?)",
+                (
+                    payload["payload_id"],
+                    ids[0] if ids else None,
+                    json.dumps(ids),
+                    json.dumps(payload, sort_keys=True),
+                    json.dumps(sorted(set(redactions))),
+                    time.time(),
+                ),
             )
             self._db.commit()
 
@@ -126,7 +139,7 @@ class LocalStore:
         """Exactly what was queued to leave, newest first, with the redactions applied upstream."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT payload_id, raw_id, body, redactions, status, attempts, created_at, sent_at "
+                "SELECT payload_id, raw_id, raw_ids, body, redactions, status, attempts, created_at, sent_at "
                 "FROM outbox ORDER BY created_at DESC, rowid DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -134,6 +147,7 @@ class LocalStore:
             {
                 "payload_id": r["payload_id"],
                 "raw_id": r["raw_id"],
+                "raw_ids": json.loads(r["raw_ids"]),
                 "status": r["status"],
                 "attempts": r["attempts"],
                 "created_at": r["created_at"],

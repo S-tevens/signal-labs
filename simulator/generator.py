@@ -26,14 +26,20 @@ def now() -> str:
 
 
 def steady_lines() -> list[str]:
+    """One reading of every metric per host, deliberately spread across several formats."""
     lines = []
     for host in HOSTS:
-        cpu = random.gauss(35, 5)
-        lat = random.gauss(40, 6)
-        # same data in three different formats on purpose: the collector must handle any
-        lines.append(json.dumps({"kind": "metric", "ts": now(), "tz": "Asia/Kolkata", "host": host, "name": "cpu_pct", "value": round(cpu, 1)}))
-        lines.append(f"ts={now()} host={host} metric=latency_ms value={lat:.1f}")
-        lines.append(json.dumps({"kind": "metric", "ts": now(), "host": host, "name": "mem_pct", "value": round(random.gauss(55, 4), 1)}))
+        t = now()
+        lines += [
+            json.dumps({"kind": "metric", "ts": t, "tz": "Asia/Kolkata", "host": host, "name": "cpu_pct", "value": round(random.gauss(35, 5), 1)}),
+            json.dumps({"kind": "metric", "ts": t, "host": host, "name": "mem_pct", "value": round(random.gauss(55, 4), 1)}),
+            json.dumps({"kind": "metric", "ts": t, "host": host, "name": "bandwidth_mbps", "value": round(abs(random.gauss(120, 25)), 1)}),
+            json.dumps({"kind": "metric", "ts": t, "host": host, "name": "service_up", "value": 1}),
+            f"ts={t} host={host} metric=latency_ms value={random.gauss(40, 6):.1f}",
+            f"ts={t} host={host} metric=disk_pct value={random.gauss(48, 1.5):.1f}",
+            f"ts={t} host={host} metric=packet_loss_pct value={abs(random.gauss(0.1, 0.08)):.2f}",
+            f"ts={t} host={host} metric=connectivity_up value=1",
+        ]
     return lines
 
 
