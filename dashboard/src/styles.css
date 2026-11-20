@@ -2810,3 +2810,61 @@ button.top-avatar { border: 0; cursor: pointer; font: inherit; }
 .auth-card .button:not(.secondary), .users-card .button:not(.secondary), .users-inline .button:not(.secondary) { background: #2863ed; color: #fff; border: 1px solid #2863ed; font-weight: 500; }
 .auth-card .button:not(.secondary):hover:not(:disabled), .users-card .button:not(.secondary):hover:not(:disabled) { background: #1f52c9; }
 .auth-card .button:disabled, .users-card .button:disabled { opacity: .55; cursor: not-allowed; }
+
+/* ---- Layout: sidebar, quiet top bar and an evenly spaced bento grid ---- */
+.app-shell { display: grid; grid-template-columns: 264px minmax(0, 1fr); max-width: 1680px; border-radius: 24px; background: linear-gradient(165deg, #f8f9fb 0%, #eef1f5 100%); }
+.sidebar { position: sticky; top: 24px; align-self: start; height: calc(100vh - 48px); display: flex; flex-direction: column; gap: 22px; padding: 26px 16px 18px; background: #fff; border-right: 1px solid #e6e8eb; overflow-y: auto; }
+.sidebar .image-brand { margin: 0 8px; }
+.side-nav { display: grid; gap: 18px; }
+.side-group { display: grid; gap: 3px; }
+.side-label { margin: 0 12px 6px; color: #8a9199; font-size: .76rem; }
+.side-nav a { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 12px; color: #4b535b; font-size: .92rem; text-decoration: none; transition: background .15s, color .15s; }
+.side-nav a:hover { background: #f1f3f5; color: #171d25; }
+.side-nav a:focus-visible { outline: 2px solid #2863ed; outline-offset: -2px; }
+.side-nav a.active { background: #1e252b; color: #fff; }
+.side-nav .nav-count { margin-left: auto; min-width: 22px; padding: 1px 8px; border-radius: 999px; background: #e9ecef; color: #4b535b; font-size: .74rem; text-align: center; }
+.side-nav a.active .nav-count { background: #ffffff2b; color: #fff; }
+.side-card { margin-top: auto; display: grid; gap: 8px; padding: 18px; border-radius: 16px; border: 1px solid #dfe6f7; background: linear-gradient(160deg, #eaf0ff 0%, #f6f8fd 100%); color: #1f2a44; }
+.side-card strong { font-size: .95rem; font-weight: 600; }
+.side-card p { margin: 0; color: #5b6478; font-size: .82rem; line-height: 1.5; }
+.side-card a { justify-self: start; margin-top: 4px; padding: 9px 14px; border-radius: 10px; background: #1e252b; color: #fff; font-size: .82rem; text-decoration: none; }
+.side-card a:hover { background: #2b343c; }
+.main-shell { min-width: 0; }
+.topbar { height: 72px; padding: 0 32px; background: transparent; border-bottom: 0; }
+.app-shell main { padding: 4px 32px 44px; }
+.page-heading { margin: 6px 0 26px; }
+.page-heading h1 { font-size: clamp(1.6rem, 2.4vw, 2.1rem); }
+.heading-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.review-cta { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 999px; background: #e6531b; color: #fff; font-size: .86rem; font-weight: 500; text-decoration: none; }
+.review-cta:hover { background: #c9410e; }
+.review-cta:focus-visible { outline: 2px solid #1e252b; outline-offset: 2px; }
+.review-cta span { min-width: 20px; padding: 0 7px; border-radius: 999px; background: #ffffff33; text-align: center; font-size: .76rem; }
+
+.bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
+.bento > .fleet-hero-grid, .bento > .overview-grid, .bento .stats-grid { display: contents; }
+.bento .stat-card { grid-column: span 3; order: 1; }
+.bento .health-panel { grid-column: span 8; order: 2; }
+.bento .fleet-status-hero { grid-column: span 4; order: 3; }
+.bento .fleet-panel { grid-column: span 8; order: 4; }
+.bento .health-summary { grid-column: span 4; order: 5; }
+.bento .incident-preview { grid-column: span 12; order: 6; }
+.bento .panel, .bento .stat-card { margin: 0; min-width: 0; border-radius: 20px; background: #fff; border: 1px solid #e6e8eb; box-shadow: 0 1px 2px #1a22300a, 0 10px 28px #1a22300a; }
+.bento .fleet-status-hero { min-height: 0; padding: 22px; }
+.bento .stat-card { padding: 20px 22px; }
+@media (max-width: 1280px) { .bento .stat-card { grid-column: span 6; } .bento .health-panel, .bento .fleet-panel { grid-column: span 12; } .bento .fleet-status-hero, .bento .health-summary { grid-column: span 6; } }
+@media (max-width: 1000px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; flex-direction: row; align-items: center; gap: 12px; padding: 12px 14px; border-right: 0; border-bottom: 1px solid #e6e8eb; overflow-x: auto; }
+  .sidebar .image-brand { flex: none; margin: 0; }
+  .side-nav { display: flex; gap: 6px; }
+  .side-group { display: flex; gap: 6px; }
+  .side-label, .side-card { display: none; }
+  .side-nav a { flex: none; padding: 9px 12px; }
+  .app-shell main { padding: 4px 18px 36px; }
+  .topbar { padding: 0 18px; }
+}
+@media (max-width: 760px) { .bento { gap: 14px; } .bento .stat-card, .bento .health-panel, .bento .fleet-status-hero, .bento .fleet-panel, .bento .health-summary, .bento .incident-preview { grid-column: span 12; } }
+/* overflow: clip keeps the rounded corners without making the shell a scroll container, so the sidebar stays put. */
+.app-shell { overflow: clip; }
+.sidebar { scrollbar-width: none; }
+.sidebar::-webkit-scrollbar { display: none; }

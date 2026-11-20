@@ -83,6 +83,11 @@ const nav = [
   { id: "egress", label: "Local egress", icon: FileJson },
   { id: "users", label: "Users", icon: ShieldCheck, adminOnly: true },
 ];
+const NAV_GROUPS = [
+  { label: "Main menu", ids: ["fleet", "analytics", "flow", "incidents", "proof"] },
+  { label: "Investigate", ids: ["received", "objects", "history", "egress"] },
+  { label: "Administration", ids: ["users"] },
+];
 const regionName = { in: "India", eu: "Europe" };
 function currentPage() {
   const page = location.hash.replace("#/", "").split("?")[0];
@@ -261,7 +266,7 @@ function Fleet({ rows, onSelect, onIncident, range }) {
   const seriesNow = metric === "cpu" ? cpuSeries : latencySeries;
   const latest = seriesNow.length ? seriesNow[seriesNow.length - 1] : null;
   return (
-    <>
+    <div className="bento">
       <div className="fleet-hero-grid">
         <section className="panel fleet-status-hero" aria-label="Collector health summary">
           <div className="hero-card-heading"><div><span className="card-kicker">Your infrastructure</span><h2>Collector status</h2></div><span className="light-pill">{rows.length} collectors</span></div>
@@ -625,7 +630,7 @@ function Fleet({ rows, onSelect, onIncident, range }) {
           </button>
         ))}
       </section>
-    </>
+    </div>
   );
 }
 
@@ -1033,12 +1038,6 @@ function Dashboard() {
   }, []);
   useEffect(() => {
     document.title = `Signal Labs · ${pages[page][0]}`;
-    const navigation = document.querySelector('.top-nav');
-    const active = navigation?.querySelector('[aria-current="page"]');
-    if (navigation && active) {
-      const left = active.getBoundingClientRect().left - navigation.getBoundingClientRect().left;
-      navigation.scrollLeft += left - 12;
-    }
   }, [page]);
   useEffect(() => {
     const key = (e) => {
@@ -1097,13 +1096,41 @@ function Dashboard() {
   );
   return (
     <div className="app-shell">
+      <aside className="sidebar" aria-label="Signal Labs">
+        <a className="image-brand" href="#/fleet" aria-label="Signal Labs home"><img src="/signal-labs-transparent.png" alt="Signal Labs" /></a>
+        <nav className="side-nav" aria-label="Dashboard views">
+          {NAV_GROUPS.map((g) => {
+            const items = nav.filter((n) => g.ids.includes(n.id) && (!n.adminOnly || session?.permissions?.includes("users.manage")));
+            if (!items.length) return null;
+            return (
+              <div className="side-group" key={g.label}>
+                <span className="side-label">{g.label}</span>
+                {items.map((n) => {
+                  const Icon = n.icon;
+                  const count = n.id === "incidents" ? incidents.filter((i) => region === "all" || i.region === region).length : null;
+                  return (
+                    <a key={n.id} href={`#/${n.id}`} className={page === n.id ? "active" : ""} aria-current={page === n.id ? "page" : undefined}>
+                      <Icon size={17} />
+                      <span>{n.label}</span>
+                      {count !== null && <span className="nav-count">{count}</span>}
+                    </a>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </nav>
+        <div className="side-card">
+          <ShieldCheck size={22} />
+          <strong>Your data stays yours</strong>
+          <p>Raw records remain on the collector. Only approved metadata is sent.</p>
+          <a href="#/egress">View egress proof</a>
+        </div>
+      </aside>
       <div className="main-shell">
         <header className="topbar">
           <div className="topbar-left">
-            <a className="image-brand" href="#/fleet" aria-label="Signal Labs home"><img src="/signal-labs-transparent.png" alt="Signal Labs" /></a>
-            <span className="header-divider" />
             <div className="header-workspace"><span>{mode === "live" ? "Authenticated tenant" : "Workspace"}</span><strong>{mode === "live" ? (session?.tenant_id || "Unavailable") : "Team Mirai"}</strong></div>
-            <span className="header-environment">Observability platform</span>
           </div>
           <div className="topbar-right">
             <button className="icon-button header-help" aria-label="Open demo guide" onClick={() => setHelp(true)}><CircleHelp size={18}/></button>
@@ -1116,12 +1143,14 @@ function Dashboard() {
             <div>
               {page === "egress" && <div className="eyebrow">Local collector, synthetic records</div>}
               <h1>
-                {pages[page][0]}
-
+                {page === "fleet" && mode === "live" && session
+                  ? `Welcome back, ${(session.display_name || session.user || "").split(" ")[0] || "there"}`
+                  : pages[page][0]}
               </h1>
-              <p>{pages[page][1]}</p>
+              <p>{page === "fleet" ? "Here is how your infrastructure is doing right now." : pages[page][1]}</p>
             </div>
             <div className="heading-actions">
+              <a className="review-cta" href="#/incidents">Review incidents <span>{incidents.filter((i) => region === "all" || i.region === region).length}</span></a>
               {page !== "egress" && page !== "proof" && (
                 <label className="select-wrap region-select">
                   <Globe2 size={15} />
@@ -1168,11 +1197,6 @@ function Dashboard() {
               </button>
             </div>
           </div>
-          <nav className="top-nav" aria-label="Dashboard views">
-            {nav.filter((n) => !n.adminOnly || session?.permissions?.includes("users.manage")).map((n) => <a key={n.id} href={`#/${n.id}`} className={page === n.id ? 'active' : ''} aria-current={page === n.id ? 'page' : undefined}>{n.label}{n.id === 'incidents' && <span className="nav-count">{incidents.filter(i => region === 'all' || i.region === region).length}</span>}</a>)}
-            <a className="nav-cta" href="#/incidents">Review incidents <span>{incidents.filter(i => region === 'all' || i.region === region).length}</span></a>
-          </nav>
-          {mode === "live" && session && <p className="tenant-scope">Tenant: <strong>{session.tenant_id}</strong> · Region: {session.region.toUpperCase()} · Role: <strong>{session.role}</strong> · Sign out from the account menu to switch person.</p>}
           {mode === "live" && status === "loading" && (
             <div className="notice">
               <RefreshCw size={18} />
@@ -1212,12 +1236,6 @@ function Dashboard() {
           {page === "history" && <HealthHistory />}
           {page === "egress" && <Egress notify={setToast} />}
           {page === "users" && <UsersAdmin />}
-          <footer>
-            <span>
-              <Activity size={13} />
-              Signal Labs <span>·</span> Built for CICADA 2026
-            </span>
-          </footer>
         </main>
       </div>
       {detail && <Detail detail={detail} close={() => setDetail(null)} />}
