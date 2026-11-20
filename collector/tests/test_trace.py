@@ -26,7 +26,7 @@ def test_overlapping_spans_are_merged_not_double_masked():
 def test_the_leak_check_finds_a_value_in_the_payload_and_ignores_clean_ones():
     raw = [{"text": TEXT, "spans": SPANS}]
     assert trace.leaked({"summary": "x"}, raw) == []
-    assert trace.leaked({"summary": "password was Hunter2! here"}, raw) == ["password"]
+    assert trace.leaked({"summary": "saw password=Hunter2! here"}, raw) == ["password"]
 
 
 def test_received_hop_reports_missing_and_differences():
