@@ -135,6 +135,21 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
     def local_pipeline():
         return {"counters": dict(pipeline.counters), "open_windows": pipeline.agg.open_windows(), "window_s": cfg.window_s}
 
+    @app.get("/local/timing")
+    def local_timing():
+        """The settings that decide how fast data moves. Recorded in every measurement's evidence file."""
+        return {
+            "profile": cfg.profile,
+            "window_s": cfg.window_s,
+            "grace_s": cfg.grace_s,
+            "flush_interval_s": cfg.flush_interval_s,
+            "send_interval_s": cfg.send_interval_s,
+            "heartbeat_interval_s": cfg.heartbeat_interval_s,
+            "batch_size": cfg.batch_size,
+            "probe_interval_s": cfg.probe_interval_s,
+            "host_interval_s": cfg.host_interval_s,
+        }
+
     @app.get("/local/identity")
     def local_identity():
         """Who this collector is and where its credentials came from. Never returns a key or a secret."""

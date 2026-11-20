@@ -24,22 +24,27 @@ Evidence the guide says judges will ask for:
 | **Working collector on the organizer stream; raw data and secrets stay local** | Partial | The collector runs on the simulator and on real host telemetry; the egress panel and the `secret` scenario show raw staying local | **The organizer stream is not integrated** and its format is unknown. There is no canary-style proof that nothing raw reaches the platform, and nothing to show it on someone else's data |
 | **SaaS shows only allow-listed metadata, per tenant** | Mostly | Strict schema plus frozen-contract validation; row-level security tested on Postgres | A second tenant has never run live; no scan proving no raw value reached any platform table or API |
 | **Dashboard with four health states, thresholds, stale-data handling** | Built, partly checked | States and a "Telemetry stale" reason were seen live; Health history renders; thresholds live in `saas/config/thresholds.yaml` | Thresholds are not shown in the UI; stale handling not checked in a browser; the collector's heartbeat sends a constant config hash and **no resource usage**, though the guide asks the fleet view to show both |
-| **Contextual anomaly alerts; outage detection, buffering, retry** | Verified live | Explained incidents with lineage; an outage buffered 26 payloads and lost none; retry with backoff; replica kill lost none | **Offline detection time has never been measured**, and the default threshold cannot meet the target (section 3) |
+| **Contextual anomaly alerts; outage detection, buffering, retry** | Verified live | Explained incidents with lineage; alerts measured at 3.6 to 6.6 s; an outage buffered 42 to 70 payloads and lost none; retry with backoff; replica kill lost none | **Offline detection measured at 60.2 s from the last heartbeat, 0.2 s over the target**, because the platform's threshold is exactly 60 s (P17) |
 | **Egress proof panel shows the exact payload before it leaves** | Partial | `/local/ui` shows raw beside the exact payload with a leak check | Payloads leave within about a second, so a judge cannot catch one **before** it leaves; the panel cannot show that the SaaS received the same bytes |
-| **Real-time: dashboard ≤ 10 s, alert ≤ 15 s, offline ≤ 60 s, zero loss and duplicates** | Zero loss verified; timing **not measured** | Zero loss and zero duplicates by payload-ID set through an outage (12,610 judged) and through killing a replica (12,658 judged) | No clean measurement of any of the three timings; earlier figures were skewed by old windows and backdated test events and must not be quoted |
+| **Real-time: dashboard ≤ 10 s, alert ≤ 15 s, offline ≤ 60 s, zero loss and duplicates** | **Measured**: 3 of 4 pass | With the `realtime` collector profile: dashboard 5.95 s, alert 3.6 s (hard threshold) and 6.6 s (baseline deviation), zero loss and zero duplicates. At the default timing the dashboard figure is 10.2 to 11.1 s (FAIL) | **Offline fails by 0.2 s** until the platform threshold is lowered (P17). Results are one run each on one machine ([summary](p3/evidence/SUMMARY.md)) |
 
-## 3. Can the defaults even meet the timing targets?
+## 3. Do the settings meet the timing targets? Measured
 
-Worked out from the current settings (estimates, to be replaced by measurements from E14):
+Measured with `scripts\measure.ps1` (E14); every run and its settings are in [p3/evidence/SUMMARY.md](p3/evidence/SUMMARY.md). An earlier version of this section gave estimates from the code; the table shows how they held up.
 
-| Target | What adds up at the defaults | Estimate | Risk |
+| Target | At the default timing (5 s window, 2 s grace) | With `PROFILE=realtime` (2 s window, 1 s grace) | Earlier estimate |
 |---|---|---|---|
-| **Collection → dashboard ≤ 10 s (p95)** | a 5 s window, then a 2 s grace, then up to 1 s until the window flush runs and up to 1 s until the sender runs, ingest, then the platform's 2 s stream snapshot | about 3 to 6 s from the **newest** record in a window; **8 to 11 s from the earliest** record | The stricter reading of "event time to render" can exceed 10 s |
-| **Breach → alert ≤ 15 s** | the platform needs the anomaly in **2 consecutive windows**: the first window closes about 8 s after the spike starts, the second about 5 s later | about 10 to 14 s | Right at the limit, with no margin |
-| **Offline ≤ 60 s** | `offline_after_s` is exactly 60, checked once a second | the collector turns Poor 60 to 61 s after its last heartbeat | **Misses the target by design**; measured from the outage start it is about 55 to 61 s |
-| **Zero loss and duplicates** | idempotent IDs, durable outbox, failover proxy | measured: none missing, none duplicated | Low |
+| **Collection → dashboard ≤ 10 s, p95** (strict: clock starts at the window's start) | **10.2 s and 11.1 s: FAIL** | **5.95 s: PASS** | 8 to 11 s: **right** |
+| **Breach → alert ≤ 15 s** | 4.4 s: PASS (hard threshold) | 3.6 s PASS (hard threshold), 6.6 s PASS (deviation from baseline) | 10 to 14 s: **wrong**, because a hard threshold breach is alerted without waiting for the persistence rule |
+| **Offline ≤ 60 s** (from the last heartbeat) | **60.16 s: FAIL** | **60.28 s: FAIL** | 60 to 61 s: **right** |
+| **Zero loss and duplicates** | 74 created, 0 missing, 0 duplicates, replay 5.5 s | 136 created, 0 missing, 0 duplicates, replay 5.8 s | low risk: **right** |
 
-A "real-time" profile would change the settings together: window 2 s, grace 1 s, flush every 0.5 s, send every 0.25 s, heartbeat 5 s, offline threshold 40 s, and a pushed dashboard update. By the same arithmetic that gives about 4 to 5 s collection to dashboard, about 6 s to an alert and about 40 s to Poor. The cost is roughly 2.5 times more payloads per collector (more rows and requests). The timing settings are shared between the two halves (section 5), so they are agreed together, then measured.
+What follows:
+
+- **Dashboard latency** has a floor of window + grace before any delivery delay. The `realtime` profile cuts that floor from 7 s to 3 s and passes with about 4 s of margin. The cost is roughly 2.5 times more payloads per collector. The runner `scripts\run-local.ps1` now uses this profile by default.
+- **Offline** is a platform setting. The platform marks a collector Poor exactly 60 s after its last heartbeat, and the result is always about 0.2 to 0.3 s later. Lowering `offline_after_s` to about 40 s (with the 5 s heartbeat) should give about 40 s. That is task P17.
+- **Burst detection note.** The failed-login burst threshold is per window, so a 2 s window makes the effective rate threshold 2.5 per second instead of 1 per second. Large bursts (the scenario the sheet describes) are unaffected.
+- **Open question for the platform:** the dashboard path waited for the next pushed snapshot (about every 2 s); the measured fetch afterwards took about 0.4 s. A push on arrival (P18) would shave the rest.
 
 ## 4. Work split for two people
 
@@ -67,6 +72,8 @@ Priority: **P0** = a Phase 3 tick or a mandatory item; **P1** = strengthens Phas
 | E23 | P1 | **Real-time collector health verdict.** Replace the constant "Good" with a local verdict (using the same thresholds as the platform) so the collector's own report agrees with the platform | `collector/pipeline.py` | A CPU spike changes the `health_state` the collector sends |
 | E24 | P2 | **Pipeline stage page** (carried over from E6): received, parsed by format, redacted by rule, dropped, aggregated, queued, sent | `collector/ui/`, `main.py` | Counts per stage add up and are visible live |
 | E25 | P0 | Docs: `docs/p3/collector.md` (demo order, expected output of each command, how each target is measured) and the evidence files; update the statuses in this file | `docs/p3/` | A teammate can run the whole Phase 3 demo from the document alone |
+
+**Progress (Member 1):** E14 done (`simulator/measure.py`, `scripts/measure.ps1`, evidence in `docs/p3/evidence/`, 14 unit tests); E15 done (`PROFILE=realtime`, `run-local.ps1 -Profile`, measured, 7 unit tests). The rest are not started.
 
 ### Member 2: Platform (dashboard, health, timing path, proof views)
 
@@ -112,14 +119,14 @@ Priority: **P0** = a Phase 3 tick or a mandatory item; **P1** = strengthens Phas
 - [ ] Dashboard shows the four health states, their thresholds and stale-data handling (P16, P17)
 - [ ] Contextual anomaly alerts; outage detection, buffering and retry shown live (E14, P19)
 - [ ] Egress proof panel shows the exact payload before it leaves, and it matches what the SaaS received (E18, E19, P20)
-- [ ] Measured: dashboard ≤ 10 s, alert ≤ 15 s, offline ≤ 60 s, zero loss and duplicates, with evidence files (E14, E15, P17 to P19)
+- [ ] Measured: dashboard ≤ 10 s (pass at `realtime`), alert ≤ 15 s (pass), zero loss and duplicates (pass), with evidence files; **offline ≤ 60 s still fails by 0.2 s until P17** (E14, E15, P17 to P19)
 - [ ] Mandatory: real-time measured from timestamps; the shared organizer stream; the egress proof panel
 - [ ] One full rehearsal run recorded (E22)
 
 ## 8. Risks
 
 - **The organizer stream arrives late or in an unexpected shape.** Mitigation: adapters and a mapping file (E16), and rehearsing on a recorded timeline (E17).
-- **The targets are missed at the defaults.** Mitigation: section 3, and measuring early (E14) so there is time to tune.
+- **The targets are missed at the default timing.** Confirmed by measurement for the dashboard and offline targets; mitigated for the dashboard by the `realtime` profile, and for offline only by P17. Repeat the measurements before the final, since each figure is a single run.
 - **Tuning for speed costs volume.** A shorter window sends more payloads; the retention caps bound the disk, and the volume should be measured with E15.
 - **A polished screen with fixed data.** The dashboard's Egress screen is synthetic by design (raw records must never go through the central platform). Label it clearly and demonstrate the real collector panel, with the platform's "what was received" view (P20) beside it.
 - **Clock differences.** All measurements here run on one machine, so one clock. If the organizers measure across machines, agree on a time source first.

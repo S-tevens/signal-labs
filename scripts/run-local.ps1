@@ -24,7 +24,10 @@ param(
   [switch]$Status,
   [switch]$Tls,               # HTTPS between collector and SaaS, with a private dev CA (needs: pip install cryptography)
   [switch]$NoHostTelemetry,   # do not read this machine's CPU, memory, disk, bandwidth or probe the network
-  [switch]$NoProxy            # send straight to replica 1 instead of through the failover proxy (port 8080)
+  [switch]$NoProxy,           # send straight to replica 1 instead of through the failover proxy (port 8080)
+  # Collector timing preset (see collector/config.py). "realtime" is the default here because it is the one that
+  # measured under the 10 s dashboard target; "default" is the library's original 5 s window.
+  [ValidateSet("default", "realtime")][string]$Profile = "realtime"
 )
 
 # Windows PowerShell 5.1 turns any stderr text from a native command into a hard error under "Stop",
@@ -181,6 +184,7 @@ if (-not $NoProxy) {
 
 $env:SAAS_URL = $saasUrl
 $env:DATA_DIR = (Join-Path $data "collector")
+$env:PROFILE = $Profile
 $env:HEARTBEAT_INTERVAL_S = "5"
 Start-Svc "collector" $python @("-m", "uvicorn", "collector.main:app", "--port", "8101") "http://127.0.0.1:8101/healthz"
 

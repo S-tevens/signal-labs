@@ -4,7 +4,8 @@ Everything runs locally on Windows PowerShell with dev credentials. No Docker.
 
 | Script | What it does |
 |---|---|
-| `run-local.ps1` | Starts Postgres (port 5433), runs the migration, then two SaaS replicas, the collector, the simulator and the dashboard. Flags: `-Tls`, `-NoSimulator`, `-NoHostTelemetry`, `-NoProxy`, `-NoDashboard`, `-Restart`, `-Status` |
+| `run-local.ps1` | Starts Postgres (port 5433), runs the migration, then two SaaS replicas, the collector, the simulator and the dashboard. Flags: `-Tls`, `-Profile default|realtime`, `-NoSimulator`, `-NoHostTelemetry`, `-NoProxy`, `-NoDashboard`, `-Restart`, `-Status` |
+| `measure.ps1` | Measures the real-time targets and delivery from timestamps and writes an evidence file. See [Measuring the real-time targets](#measuring-the-real-time-targets) |
 | `lb.py` | The failover proxy that `run-local.ps1` puts in front of the two replicas (port 8080). Round robin, exact request bytes, automatic failover and recovery. Run it by hand with `python scripts\lb.py --help` |
 | `stop-local.ps1` | Stops everything it started (`-KeepDb` leaves Postgres running) |
 | `gen-certs.ps1` | Makes the dev TLS certificates in `data\certs` (a private CA plus a server certificate). `run-local.ps1 -Tls` calls it |
@@ -18,6 +19,38 @@ pip install -r collector\requirements.txt -r saas\requirements.txt
 ```
 
 If your default `python` lacks the dependencies, point `$env:PYTHON` at one that has them. PostgreSQL is found under `C:\Program Files\PostgreSQL`, or set `$env:PG_BIN`. Logs are in `data\logs`.
+
+## Measuring the real-time targets
+
+```
+.\scripts\measure.ps1                  # everything, about 6 minutes
+.\scripts\measure.ps1 latency          # collection to dashboard, p95 <= 10 s
+.\scripts\measure.ps1 alert anomaly    # threshold breach and baseline deviation to alert, <= 15 s
+.\scripts\measure.ps1 offline          # collector killed to Poor, <= 60 s
+.\scripts\measure.ps1 delivery         # forced outage, sent IDs vs received IDs
+```
+
+Start the stack with `run-local.ps1 -Tls -NoSimulator` first for the cleanest numbers. Each test sends records timestamped *now* from its own unique host (never backdated), so it is not skewed by old data or other traffic, and each result is PASS or FAIL against its target. A run writes `docs\p3\evidence\measure-<time>.md` (the table, with the settings used) and a `.json` with every raw timestamp.
+
+- **Dashboard** is measured two ways. The *API* path polls the platform twice a second, the earliest the data could be shown. The *dashboard path* does what the real dashboard does when the platform pushes a snapshot: fetches the fleet, incidents, proof and four metric series.
+- **Collection latency** is reported from the payload's newest record and from the start of its window. The verdict uses the strict one (window start).
+- **Offline** is measured from the last heartbeat, and from the moment the collector was killed (a hard kill, no goodbye).
+- **Delivery** cuts the platform link, keeps sending, restores the link and compares payload ID sets. Duplicates are checked independently (repeated IDs in the platform's listing), not from the platform's own counter.
+- All timestamps are on one machine and so one clock. Results from earlier runs are in [docs/p3/evidence/SUMMARY.md](../docs/p3/evidence/SUMMARY.md).
+
+## Timing profiles
+
+The collector's timing is one preset, chosen with `PROFILE` (or `run-local.ps1 -Profile`). An explicit `WINDOW_S`, `GRACE_S`, `FLUSH_INTERVAL_S`, `SEND_INTERVAL_S` or `HEARTBEAT_INTERVAL_S` always wins over the preset, and an unknown profile name stops the collector. The profile in use is shown at `http://127.0.0.1:8101/local/timing` and recorded in every evidence file.
+
+| Setting | `default` | `realtime` (the runner's default) |
+|---|---|---|
+| Aggregation window | 5 s | 2 s |
+| Grace for late events | 2 s | 1 s |
+| Window flush check | 1 s | 0.5 s |
+| Send interval | 1 s | 0.25 s |
+| Heartbeat | 10 s | 5 s |
+
+Measured result: at `default` the strict collection-to-dashboard p95 was 10.2 to 11.1 s (over the 10 s target); at `realtime` it was 5.95 s. The cost is roughly 2.5 times more payloads per collector. The failed-login burst threshold is per window, so a shorter window raises the effective rate threshold from 1 to 2.5 failures per second.
 
 ## Failover proxy
 
@@ -48,8 +81,10 @@ Open `http://127.0.0.1:8101/local/ui` (collector, this machine only). Pick a pay
 ## TLS (`-Tls`)
 
 ```
-pip install -r scriptsequirements.txt        # cryptography, for the dev certificates
-.\scriptsun-local.ps1 -Tls
+pip install -r scripts
+equirements.txt        # cryptography, for the dev certificates
+.\scripts
+un-local.ps1 -Tls
 .\scripts\demo.ps1 tls
 ```
 

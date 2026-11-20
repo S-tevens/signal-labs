@@ -6,6 +6,26 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 COLLECTOR_VERSION = "0.1.0"
+
+# Timing presets. "default" keeps the documented behaviour; "realtime" trades about 2.5x more payloads for a much
+# shorter path from event to dashboard (window + grace is the floor under the strict latency measurement).
+# An explicit environment variable always wins over a profile.
+PROFILES = {
+    "default": {},
+    "realtime": {"WINDOW_S": "2", "GRACE_S": "1", "FLUSH_INTERVAL_S": "0.5", "SEND_INTERVAL_S": "0.25", "HEARTBEAT_INTERVAL_S": "5"},
+}
+
+
+def profile_name() -> str:
+    name = os.getenv("PROFILE", "default").strip().lower() or "default"
+    if name not in PROFILES:
+        raise ValueError(f"unknown PROFILE {name!r}; choose one of: {', '.join(PROFILES)}")
+    return name
+
+
+def setting(env_name: str, fallback: str) -> str:
+    """The value of a timing setting: the environment if set, else the profile's value, else the built-in default."""
+    return os.getenv(env_name) or PROFILES[profile_name()].get(env_name, fallback)
 DEV_COLLECTOR_KEY = "key-acme-1"  # the built-in development credential; an enrolled collector never uses it
 
 
@@ -19,12 +39,13 @@ class Config:
     pseudo_secret: str = field(default_factory=lambda: os.getenv("PSEUDO_SECRET", "dev-local-pseudonym-secret"))
     saas_url: str = field(default_factory=lambda: os.getenv("SAAS_URL", "http://localhost:8080"))
     data_dir: Path = field(default_factory=lambda: Path(os.getenv("DATA_DIR", "./data/collector")))
-    send_interval_s: float = field(default_factory=lambda: float(os.getenv("SEND_INTERVAL_S", "1")))
-    heartbeat_interval_s: float = field(default_factory=lambda: float(os.getenv("HEARTBEAT_INTERVAL_S", "10")))
+    profile: str = field(default_factory=profile_name)
+    send_interval_s: float = field(default_factory=lambda: float(setting("SEND_INTERVAL_S", "1")))
+    heartbeat_interval_s: float = field(default_factory=lambda: float(setting("HEARTBEAT_INTERVAL_S", "10")))
     # Local aggregation: records are grouped per source into fixed windows and sent as one summary.
-    window_s: int = field(default_factory=lambda: int(os.getenv("WINDOW_S", "5")))
-    grace_s: float = field(default_factory=lambda: float(os.getenv("GRACE_S", "2")))  # wait for late events
-    flush_interval_s: float = field(default_factory=lambda: float(os.getenv("FLUSH_INTERVAL_S", "1")))
+    window_s: int = field(default_factory=lambda: int(setting("WINDOW_S", "5")))
+    grace_s: float = field(default_factory=lambda: float(setting("GRACE_S", "2")))  # wait for late events
+    flush_interval_s: float = field(default_factory=lambda: float(setting("FLUSH_INTERVAL_S", "1")))
     burst_threshold: int = field(default_factory=lambda: int(os.getenv("BURST_THRESHOLD", "5")))  # failures per window
     policy_file: Path = field(
         default_factory=lambda: Path(os.getenv("POLICY_FILE", str(Path(__file__).with_name("policy.yaml"))))
