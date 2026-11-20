@@ -28,12 +28,17 @@ import {
   X,
 } from "lucide-react";
 import {
-  collectors,
-  incidents,
-  cpuSeries,
-  latencySeries,
+  collectors as demoCollectors,
+  incidents as demoIncidents,
+  cpuSeries as demoCpu,
+  latencySeries as demoLatency,
   egress,
 } from "./data.js";
+import { LIVE, useLiveData } from "./api.js";
+
+// Live data from the SaaS when a dashboard token is configured, labelled demo data otherwise.
+const DataContext = React.createContext(null);
+const useData = () => React.useContext(DataContext);
 
 const pages = {
   fleet: [
@@ -110,7 +115,8 @@ function downloadJSON(name, data) {
 }
 
 function Trend({ metric, range, healthy = false }) {
-  const series = healthy
+  const { cpuSeries, latencySeries, mode } = useData();
+  const series = mode === "demo" && healthy
     ? Array.from(
         { length: 29 },
         (_, i) =>
@@ -120,7 +126,13 @@ function Trend({ metric, range, healthy = false }) {
     : metric === "cpu"
       ? cpuSeries
       : latencySeries;
-  const values = series.slice(range === "15m" ? -15 : 0);
+    const values = series.slice(range === "15m" ? -15 : 0);
+  if (values.length < 2)
+    return (
+      <div className="trend">
+        <Empty text="Waiting for telemetry…" />
+      </div>
+    );
   const y = (value) => 180 - (value / (metric === "cpu" ? 100 : 200)) * 160;
   const points = values
     .map((v, i) => `${(i * 800) / (values.length - 1)},${y(v)}`)
@@ -140,7 +152,7 @@ function Trend({ metric, range, healthy = false }) {
           viewBox="0 0 800 190"
           preserveAspectRatio="none"
           role="img"
-          aria-label={`${metric === "cpu" ? "CPU utilization" : "Latency"} demo trend${healthy ? " within baseline" : " with an increase near the end"}`}
+          aria-label={`${metric === "cpu" ? "CPU utilization" : "Latency"}  ${mode === "live" ? "live" : "demo"} trend${healthy ? " within baseline" : " with an increase near the end"}`}
         >
           <defs>
             <linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1">
@@ -209,6 +221,7 @@ function Trend({ metric, range, healthy = false }) {
 }
 
 function Fleet({ rows, onSelect, onIncident, range }) {
+  const { incidents, cpuSeries, latencySeries, mode, proof } = useData();
   const [metric, setMetric] = useState("cpu");
   const [search, setSearch] = useState("");
   const [state, setState] = useState("all");
@@ -217,11 +230,17 @@ function Fleet({ rows, onSelect, onIncident, range }) {
       (state === "all" || c.state === state) &&
       `${c.name} ${c.id}`.toLowerCase().includes(search.toLowerCase()),
   );
-  const online = rows.filter((c) => c.state !== "Poor").length;
-  const healthy = !rows.some((c) => c.id === "col-blr-02");
-  const activeIncidents = incidents.filter((i) =>
+  // Live rows carry the SaaS's own online flag: a collector can be Poor (a critical signal) and still be reporting.
+  const online = rows.filter((c) => c.online ?? c.state !== "Poor").length;
+    const activeIncidents = incidents.filter((i) =>
     rows.some((c) => c.id === i.collector),
   );
+  const healthy =
+    mode === "demo"
+      ? !rows.some((c) => c.id === "col-blr-02")
+      : activeIncidents.length === 0;
+  const seriesNow = metric === "cpu" ? cpuSeries : latencySeries;
+  const latest = seriesNow.length ? seriesNow[seriesNow.length - 1] : null;
   return (
     <>
       <div className="fleet-hero-grid">
@@ -274,12 +293,25 @@ function Fleet({ rows, onSelect, onIncident, range }) {
             <Clock3 size={17} />
           </div>
           <div className="stat-value">
-            2.4<span>s</span>
-            <span className="stat-chip">Within target</span>
+            {mode === "live"
+              ? proof?.p95_dashboard_latency_s == null
+                ? "—"
+                : proof.p95_dashboard_latency_s.toFixed(1)
+              : "2.4"}
+            <span>s</span>
+            {(mode === "demo" ||
+              (proof?.p95_dashboard_latency_s != null &&
+                proof.p95_dashboard_latency_s <= 10)) && (
+              <span className="stat-chip">Within target</span>
+            )}
           </div>
           <div className="stat-foot">
             Target ≤ 10 seconds{" "}
-            <span className="muted">· demo measurement</span>
+            <span className="muted">
+              {mode === "live"
+                ? "· measured from render acknowledgements"
+                : "· demo measurement"}
+            </span>
           </div>
           <div className="stat-line" />
         </div>
@@ -293,7 +325,10 @@ function Fleet({ rows, onSelect, onIncident, range }) {
             <ShieldCheck className="privacy-shield" size={33} />
           </div>
           <div className="stat-foot">
-            Approved metadata only <span className="muted">· demo</span>
+            Approved metadata only{" "}
+            <span className="muted">
+              {mode === "live" ? "· enforced by schema, not measured" : "· demo"}
+            </span>
           </div>
           <div className="stat-line" />
         </div>
@@ -303,7 +338,9 @@ function Fleet({ rows, onSelect, onIncident, range }) {
         <section className="panel health-panel">
           <PanelTitle icon={Activity} title="Infrastructure signals">
             <span className="small-tag">
-              Demo · {healthy ? "EU production" : "API cluster"}
+              {mode === "live"
+                ? "Live · all collectors"
+                : `Demo · ${healthy ? "EU production" : "API cluster"}`}
             </span>
           </PanelTitle>
           <div className="chart-heading">
@@ -325,21 +362,29 @@ function Fleet({ rows, onSelect, onIncident, range }) {
                 </button>
               </div>
               <div className="chart-number">
-                {metric === "cpu"
-                  ? healthy
-                    ? "38"
-                    : "91"
-                  : healthy
-                    ? "28"
-                    : "186"}
+                {mode === "live"
+                  ? latest == null
+                    ? "—"
+                    : Math.round(latest)
+                  : metric === "cpu"
+                    ? healthy
+                      ? "38"
+                      : "91"
+                    : healthy
+                      ? "28"
+                      : "186"}
                 <span>{metric === "cpu" ? "%" : "ms"}</span>
                 <span className="delta">
                   <ArrowUpRight size={14} />
-                  {healthy
-                    ? "Within expected baseline"
-                    : metric === "cpu"
-                      ? "46 pts above baseline"
-                      : "146 ms above baseline"}
+                  {mode === "live"
+                    ? latest == null
+                      ? "No data yet"
+                      : `Latest of ${seriesNow.length} samples`
+                    : healthy
+                      ? "Within expected baseline"
+                      : metric === "cpu"
+                        ? "46 pts above baseline"
+                        : "146 ms above baseline"}
                 </span>
               </div>
             </div>
@@ -530,7 +575,10 @@ function Fleet({ rows, onSelect, onIncident, range }) {
         {!activeIncidents.length && (
           <div className="empty">
             <ShieldCheck size={24} />
-            <p>No open incidents in this demo region.</p>
+            <p>
+              No open incidents
+              {mode === "live" ? "." : " in this demo region."}
+            </p>
           </div>
         )}
         {activeIncidents.slice(0, 2).map((i) => (
@@ -561,6 +609,7 @@ function Fleet({ rows, onSelect, onIncident, range }) {
 }
 
 function Incidents({ region, onSelect }) {
+  const { incidents, mode } = useData();
   const [filter, setFilter] = useState("all");
   const list = incidents.filter(
     (i) =>
@@ -578,7 +627,9 @@ function Incidents({ region, onSelect }) {
             the evidence behind them.
           </p>
         </div>
-        <span className="small-tag">Demo correlation</span>
+        <span className="small-tag">
+          {mode === "live" ? "Live correlation" : "Demo correlation"}
+        </span>
       </div>
       <div className="section-heading">
         <h2>
@@ -641,102 +692,101 @@ function Incidents({ region, onSelect }) {
 }
 
 function Proof() {
-  const evidence = {
-    mode: "demo",
-    note: "Illustrative fixtures; not measurements from a running backend.",
-    dashboard_p95_s: 2.4,
-    alert_delay_s: 4.8,
-    offline_detection_s: 52,
-    sent_unique: 1248,
-    received_unique: 1248,
-    duplicates_stored: 0,
-  };
+  const { mode, proof } = useData();
+  const live = mode === "live";
+  const fmt = (v, digits = 1) => (v == null ? "—" : Number(v).toFixed(digits));
+  const m = live
+    ? {
+        dash: proof?.p95_dashboard_latency_s,
+        alert: proof?.p95_alert_delay_s,
+        offline: proof?.offline_detection_s,
+        received: proof?.received_unique,
+        dup: proof?.stored_duplicates,
+      }
+    : { dash: 2.4, alert: 4.8, offline: 52, received: 1248, dup: 0 };
+  const evidence = live
+    ? { mode: "live", captured_at: new Date().toISOString(), ...(proof || {}) }
+    : {
+        mode: "demo",
+        note: "Illustrative fixtures; not measurements from a running backend.",
+        dashboard_p95_s: 2.4,
+        alert_delay_s: 4.8,
+        offline_detection_s: 52,
+        sent_unique: 1248,
+        received_unique: 1248,
+        duplicates_stored: 0,
+      };
   const tests = [
-    {
-      label: "Collection to dashboard",
-      value: "2.4",
-      unit: "s",
-      target: "≤ 10 s · p95",
-      percent: 24,
-      icon: Activity,
-    },
-    {
-      label: "Breach to alert",
-      value: "4.8",
-      unit: "s",
-      target: "≤ 15 s",
-      percent: 32,
-      icon: Bell,
-    },
-    {
-      label: "Offline detection",
-      value: "52",
-      unit: "s",
-      target: "≤ 60 s",
-      percent: 87,
-      icon: WifiOff,
-    },
+    { label: "Collection to dashboard", value: m.dash, target: 10, targetText: "≤ 10 s · p95", icon: Activity },
+    { label: "Breach to alert", value: m.alert, target: 15, targetText: "≤ 15 s", icon: Bell },
+    { label: "Offline detection", value: m.offline, target: 60, targetText: "≤ 60 s", icon: WifiOff },
   ];
   return (
     <>
       <div className="notice">
         <CircleHelp size={18} />
         <span>
-          These are illustrative demo results. Connect timestamped stream
-          evidence before presenting performance claims.
+          {live
+            ? "Measured by the SaaS from payload timestamps. Dashboard latency needs render acknowledgements from this page, and a blank value means that measurement has not happened yet. Sent counts live only on the collector."
+            : "These are illustrative demo results. Connect timestamped stream evidence before presenting performance claims."}
         </span>
       </div>
       <div className="proof-grid">
-        {tests.map((t) => (
-          <section key={t.label} className="panel proof-card">
-            <IconBox icon={t.icon} />
-            <h2>{t.label}</h2>
-            <div className="proof-value">
-              {t.value}
-              <span>{t.unit}</span>
-            </div>
-            <div className="proof-target">
-              <Check size={15} />
-              Within demo target <span>{t.target}</span>
-            </div>
-            <div className="target-track">
-              <span style={{ width: `${t.percent}%` }} />
-            </div>
-            <div className="target-labels">
-              <span>0 s</span>
-              <span>Target</span>
-            </div>
-          </section>
-        ))}
+        {tests.map((t) => {
+          const has = t.value != null;
+          const ok = has && t.value <= t.target;
+          return (
+            <section key={t.label} className="panel proof-card">
+              <IconBox icon={t.icon} />
+              <h2>{t.label}</h2>
+              <div className="proof-value">
+                {fmt(t.value, t.label === "Offline detection" ? 0 : 1)}
+                <span>s</span>
+              </div>
+              <div className="proof-target">
+                {has ? <Check size={15} /> : <CircleHelp size={15} />}
+                {!has ? "Not measured yet" : ok ? (live ? "Within target" : "Within demo target") : "Above target"}{" "}
+                <span>{t.targetText}</span>
+              </div>
+              <div className="target-track">
+                <span style={{ width: `${has ? Math.min(100, (t.value / t.target) * 100) : 0}%` }} />
+              </div>
+              <div className="target-labels">
+                <span>0 s</span>
+                <span>Target</span>
+              </div>
+            </section>
+          );
+        })}
       </div>
       <section className="panel">
         <PanelTitle icon={Database} title="Outage recovery & delivery">
           <button
             className="button small"
             onClick={() =>
-              downloadJSON("signal-labs-demo-proof.json", evidence)
+              downloadJSON(live ? "signal-labs-proof.json" : "signal-labs-demo-proof.json", evidence)
             }
           >
             <Download size={14} />
-            Export demo evidence
+            {live ? "Export evidence" : "Export demo evidence"}
           </button>
         </PanelTitle>
         <div className="delivery-grid">
           <div>
             <span>Unique payloads sent</span>
-            <strong>1,248</strong>
+            <strong>{live ? "—" : "1,248"}</strong>
           </div>
           <div>
             <span>Unique payloads received</span>
-            <strong>1,248</strong>
+            <strong>{m.received == null ? "—" : Number(m.received).toLocaleString()}</strong>
           </div>
           <div>
             <span>Missing payloads</span>
-            <strong className="text-green">0</strong>
+            <strong className={live ? "" : "text-green"}>{live ? "—" : "0"}</strong>
           </div>
           <div>
             <span>Duplicates stored</span>
-            <strong className="text-green">0</strong>
+            <strong className={m.dup === 0 ? "text-green" : ""}>{m.dup == null ? "—" : m.dup}</strong>
           </div>
         </div>
         <div className="delivery-flow">
@@ -756,8 +806,9 @@ function Proof() {
           </span>
         </div>
         <div className="panel-bottom">
-          For live validation, compare unique payload ID sets after
-          reconnection; equal counts alone do not prove zero loss.
+          {live
+            ? "Sent IDs live only on the collector. Export this evidence, then compare its received ID list with the collector's local egress log; equal counts alone do not prove zero loss."
+            : "For live validation, compare unique payload ID sets after reconnection; equal counts alone do not prove zero loss."}
         </div>
       </section>
       <section className="panel methodology">
@@ -941,7 +992,8 @@ function Egress({ notify }) {
   );
 }
 
-export default function App() {
+function Dashboard() {
+  const { collectors, incidents, mode, status, error, updatedAt, refresh } = useData();
   const [page, setPage] = useState(currentPage);
   const [region, setRegion] = useState("in");
   const [range, setRange] = useState("1h");
@@ -1082,11 +1134,14 @@ export default function App() {
               )}
               <button
                 className="icon-button refresh-button"
-                aria-label="Refresh demo snapshot"
+                aria-label={mode === "live" ? "Refresh live data" : "Refresh demo snapshot"}
                 onClick={() => {
-                  setToast(
-                    "Demo snapshot refreshed. Backend is not connected.",
-                  );
+                  if (mode === "live") {
+                    refresh();
+                    setToast("Refreshing from the SaaS…");
+                  } else {
+                    setToast("Demo snapshot refreshed. Backend is not connected.");
+                  }
                 }}
               >
                 <RefreshCw size={16} />
@@ -1097,6 +1152,32 @@ export default function App() {
             {nav.map((n) => <a key={n.id} href={`#/${n.id}`} className={page === n.id ? 'active' : ''} aria-current={page === n.id ? 'page' : undefined}>{n.label}{n.id === 'incidents' && <span className="nav-count">{incidents.filter(i => region === 'all' || i.region === region).length}</span>}</a>)}
             <a className="nav-cta" href="#/incidents">Review incidents <span>{incidents.filter(i => region === 'all' || i.region === region).length}</span></a>
           </nav>
+          {mode === "demo" && (
+            <div className="notice">
+              <CircleHelp size={18} />
+              <span>
+                Showing labelled demo data. Set VITE_DASHBOARD_TOKEN (see
+                .env.example) to connect to the SaaS.
+              </span>
+            </div>
+          )}
+          {mode === "live" && status === "loading" && (
+            <div className="notice">
+              <RefreshCw size={18} />
+              <span>Loading live data from the SaaS…</span>
+            </div>
+          )}
+          {mode === "live" && status === "error" && (
+            <div className="notice">
+              <WifiOff size={18} />
+              <span>
+                Cannot reach the SaaS ({error}).{" "}
+                {updatedAt
+                  ? `Showing the last data from ${new Date(updatedAt).toLocaleTimeString()}; it may be stale.`
+                  : "No data has been received yet."}
+              </span>
+            </div>
+          )}
           {page === "fleet" && (
             <Fleet
               rows={rows}
@@ -1174,6 +1255,7 @@ export default function App() {
 }
 
 function Detail({ detail, close }) {
+  const { mode } = useData();
   const { type, item } = detail;
   const closeRef = React.useRef(null);
   useEffect(() => {
@@ -1202,8 +1284,8 @@ function Detail({ detail, close }) {
       >
         <div className="drawer-top">
           <span className="eyebrow">
-            {type === "collector" ? "COLLECTOR DETAILS" : "EXPLAINABLE AIOPS"} ·
-            DEMO
+            {type === "collector" ? "COLLECTOR DETAILS" : "EXPLAINABLE AIOPS"} ·{" "}
+            {mode === "live" ? "LIVE" : "DEMO"}
           </span>
           <button
             className="icon-button"
@@ -1290,13 +1372,49 @@ function Detail({ detail, close }) {
             <div className="notice">
               <CircleHelp size={17} />
               <span>
-                Illustrative rule-based explanation. No automated action has
-                been executed.
+                {mode === "live"
+                  ? "Heuristic, rule-based explanation from metadata only."
+                  : "Illustrative rule-based explanation."}{" "}
+                No automated action has been executed.
               </span>
             </div>
           </>
         )}
       </section>
     </div>
+  );
+}
+
+export default function App() {
+  const live = useLiveData();
+  const value = LIVE
+    ? {
+        mode: "live",
+        collectors: live.data?.collectors ?? [],
+        incidents: live.data?.incidents ?? [],
+        cpuSeries: live.data?.cpuSeries ?? [],
+        latencySeries: live.data?.latencySeries ?? [],
+        proof: live.data?.proof ?? null,
+        status: live.status,
+        error: live.error,
+        updatedAt: live.updatedAt,
+        refresh: live.refresh,
+      }
+    : {
+        mode: "demo",
+        collectors: demoCollectors,
+        incidents: demoIncidents,
+        cpuSeries: demoCpu,
+        latencySeries: demoLatency,
+        proof: null,
+        status: "demo",
+        error: null,
+        updatedAt: null,
+        refresh: () => {},
+      };
+  return (
+    <DataContext.Provider value={value}>
+      <Dashboard />
+    </DataContext.Provider>
   );
 }
