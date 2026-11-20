@@ -202,13 +202,14 @@ eplay.py play simulator	imelines\demo.json [--speed 5]` plays a scripted five-mi
 
 ## Scenarios
 
-`enroll`, `flood`, `failover`, `tls`, `secret`, `hold`, `tenants`, `failed-logins`, `cpu-spike`, `latency`, `packet-loss`, `disk`, `alert-storm`, `outage`, `delivery`, `remediation`.
+`enroll`, `flood`, `failover`, `tls`, `secret`, `hold`, `tenants`, `rbac`, `failed-logins`, `cpu-spike`, `latency`, `packet-loss`, `disk`, `alert-storm`, `outage`, `delivery`, `remediation`.
 
 - Run `python simulator\generator.py --seconds 120` (or leave `run-local.ps1`'s simulator running) first, so the SaaS has a baseline.
 - `outage` cuts the collector's link, buffers, reconnects and then proves zero loss by comparing payload ID sets.
 - `delivery` posts a duplicate, an out-of-order event and a same-ID-different-body payload straight to the SaaS.
 - `enroll` has an admin issue a one-time token, starts a brand-new collector (port 8102, no keys configured) that enrolls itself and starts reporting, shows the platform seeing it online, and shows the same token refused a second time. Needs the stack from `run-local.ps1` (it includes a dev admin token); use `-Tls` so the token and credentials travel encrypted.
 - `flood` starts a collector (port 8103) with tight limits and no reachable platform, sends 40,000 lines, an oversize line and a 3 MiB request, then shows the caps holding, the counted losses and the loss event.
+- `rbac` checks role-based access on the live platform with the viewer, operator and admin tokens (`dash-viewer`, `dash-acme`, `dash-admin`): 19 checks, including that refusals are audited and that responses carry protective headers. See [../docs/p4/security.md](../docs/p4/security.md).
 - `tenants` uses a second dev tenant (`t-globex`, key `key-globex-1`, dashboard token `dash-globex`) to check: each token sees only its own fleet, observations and metrics; a cross-tenant object fetch is 404; a payload naming the other tenant or signed with its key is refused; and an extra field, a secret-like summary, an unknown metric and a non-UTC time are each rejected with the platform's reason. Prints PASS or FAIL per check.
 - Each payload's `health_state` is now the collector's own verdict (`collector/health.py`, `health.yaml`): the same thresholds and rules as the platform, so a CPU spike is reported Poor by both. A test fails if the two threshold files drift apart.
 - The heartbeat carries the collector process's own CPU, memory and data-disk share (`cpu_percent`, `memory_percent`, `disk_percent`, the only names the platform contract allows) and a `config_hash` that fingerprints every non-secret setting plus the policy and mapping files, so it changes when any of them changes. Uptime is not sent: the contract has no field for it.

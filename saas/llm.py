@@ -78,7 +78,7 @@ def build_facts(props: dict) -> dict:
 
 class Engine:
     def __init__(self, key: str | None = None, client: httpx.Client | None = None, model: str = MODEL,
-                 timeout: float = 15.0, max_per_minute: int = 20, cache_size: int = 256):
+                 timeout: float = 8.0, max_per_minute: int = 20, cache_size: int = 256):
         self._key = key
         self._client = client
         self.model, self.timeout, self.max_per_minute = model, timeout, max_per_minute
@@ -118,8 +118,11 @@ class Engine:
         }
         client = self._client or httpx.Client(timeout=self.timeout)
         text, used, last_status = "", self.model, None
+        deadline = time.time() + 20  # one summary never holds a request longer than this, whatever the fallbacks do
         try:
             for model in dict.fromkeys((self.model, *FALLBACK_MODELS)):
+                if time.time() > deadline:
+                    break
                 try:
                     resp = client.post(ENDPOINT.format(model=model), json=body, headers={"x-goog-api-key": key, "Content-Type": "application/json"})
                     resp.raise_for_status()
