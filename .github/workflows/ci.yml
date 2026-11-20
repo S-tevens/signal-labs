@@ -1,0 +1,16 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -r collector/requirements.txt -r saas/requirements.txt pytest
+      - run: python -m pytest collector saas -q
+      - name: Build images
+        run: |
+          docker build -f collector/Dockerfile -t signal-collector .
+          docker build -f saas/Dockerfile -t signal-saas .

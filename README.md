@@ -66,6 +66,26 @@ scripts/     one demo script per live scenario
 deploy/      load balancer config, install and enrollment scripts, CI workflow
 ```
 
+## Quick start
+
+Run the tests (Python 3.11):
+
+```
+pip install -r collector/requirements.txt -r saas/requirements.txt pytest
+python -m pytest collector saas -q
+```
+
+Run the whole stack (two SaaS replicas, Postgres, load balancer, collector, dashboard):
+
+```
+docker compose up --build
+docker compose --profile demo run --rm simulator
+```
+
+Then open the collector's local views at `http://localhost:8101/local/raw` (secrets visible) and `http://localhost:8101/local/egress` (exactly what left), and the dashboard at `http://localhost:5173`. Try `docker compose stop saas-1` to kill a replica, or `curl -X POST localhost:8101/local/saas-link/down` to simulate a SaaS outage.
+
+The payload contract is frozen in [contracts/](contracts/): `collector/schema.py` is the source, `contracts/payload.schema.json` is generated from it, and a test fails if they drift. Regenerate with `python -m collector.export_schema`.
+
 ## Documentation
 
 - [starter.md](starter.md): full plan covering what, how, who and when, mapped to the judging criteria.

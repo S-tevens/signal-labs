@@ -1,0 +1,12 @@
+# Health state thresholds (configurable). Not yet wired into the engine; used by saas/health.py later.
+# Stale or missing data downgrades the state instead of showing the last good value.
+staleness:
+  fair_after_s: 30
+  poor_after_s: 60        # collector unavailable -> Poor
+
+metrics:
+  cpu_pct:         {good: 70, fair: 85, poor: 95}
+  mem_pct:         {good: 75, fair: 88, poor: 95}
+  disk_pct:        {good: 80, fair: 90, poor: 97}
+  latency_ms:      {good: 100, fair: 250, poor: 800}
+  packet_loss_pct: {good: 0.5, fair: 2, poor: 10}

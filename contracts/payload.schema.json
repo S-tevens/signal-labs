@@ -1,0 +1,203 @@
+{
+  "$defs": {
+    "Event": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "auth_failure",
+            "auth_failure_burst",
+            "service_state",
+            "network_event",
+            "security_event",
+            "log_event"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "count": {
+          "maximum": 1000000,
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 120,
+          "pattern": "^[A-Za-z0-9 ,.:;()_%/-]*$",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "severity",
+        "count",
+        "summary"
+      ],
+      "title": "Event",
+      "type": "object"
+    },
+    "HealthState": {
+      "enum": [
+        "Excellent",
+        "Good",
+        "Fair",
+        "Poor"
+      ],
+      "title": "HealthState",
+      "type": "string"
+    },
+    "Metric": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "enum": [
+            "cpu_pct",
+            "mem_pct",
+            "disk_pct",
+            "bandwidth_mbps",
+            "latency_ms",
+            "packet_loss_pct",
+            "service_up",
+            "connectivity_up"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "%",
+            "mbps",
+            "ms",
+            "bool"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "unit"
+      ],
+      "title": "Metric",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "metric"
+      ]
+    },
+    {
+      "required": [
+        "event"
+      ]
+    }
+  ],
+  "properties": {
+    "collector_id": {
+      "pattern": "^col-[a-z0-9-]{1,40}$",
+      "title": "Collector Id",
+      "type": "string"
+    },
+    "collector_version": {
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Collector Version",
+      "type": "string"
+    },
+    "event": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Event"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "event_ts_utc": {
+      "format": "date-time",
+      "title": "Event Ts Utc",
+      "type": "string"
+    },
+    "health_state": {
+      "$ref": "#/$defs/HealthState"
+    },
+    "metric": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Metric"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "payload_id": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "title": "Payload Id",
+      "type": "string"
+    },
+    "region": {
+      "pattern": "^[a-z]{2,6}(-[a-z0-9]+)?$",
+      "title": "Region",
+      "type": "string"
+    },
+    "source_id": {
+      "pattern": "^src_[0-9a-f]{8,16}$",
+      "title": "Source Id",
+      "type": "string"
+    },
+    "source_tz": {
+      "pattern": "^[A-Za-z0-9_+/-]{1,64}$",
+      "title": "Source Tz",
+      "type": "string"
+    },
+    "tenant_ref": {
+      "pattern": "^t-[a-z0-9-]{1,40}$",
+      "title": "Tenant Ref",
+      "type": "string"
+    },
+    "window_s": {
+      "maximum": 3600,
+      "minimum": 1,
+      "title": "Window S",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "payload_id",
+    "tenant_ref",
+    "collector_id",
+    "source_id",
+    "region",
+    "event_ts_utc",
+    "source_tz",
+    "window_s",
+    "health_state",
+    "collector_version"
+  ],
+  "title": "EgressPayload",
+  "type": "object",
+  "x-schema-version": "1.0.0"
+}
