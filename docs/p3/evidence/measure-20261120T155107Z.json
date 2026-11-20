@@ -1,0 +1,62 @@
+{
+  "started_utc": "2026-11-20T15:51:07Z",
+  "settings": {
+    "collector_timing": {
+      "profile": "realtime",
+      "window_s": 2,
+      "grace_s": 1.0,
+      "flush_interval_s": 0.5,
+      "send_interval_s": 0.25,
+      "heartbeat_interval_s": 5.0,
+      "batch_size": 50,
+      "probe_interval_s": 5.0,
+      "host_interval_s": 2.0
+    },
+    "platform_thresholds_from_repo_file": {
+      "stale_after_s": 30.0,
+      "offline_after_s": 60.0,
+      "anomaly_persistence_windows": 2.0,
+      "baseline_min": 8.0,
+      "correlation_window_s": 120.0
+    },
+    "failover_proxy": true,
+    "saas_url": "https://127.0.0.1:8080"
+  },
+  "results": {
+    "anomaly": {
+      "from_spike_to_incident_created_s": 4.952,
+      "from_spike_to_api_visible_s": 5.655,
+      "from_spike_to_dashboard_path_s": 6.576,
+      "alerts_grouped": 1,
+      "first_signal": {
+        "signal": "cpu",
+        "method": "rolling median/MAD",
+        "value": 69.8,
+        "event_ts_utc": "2026-11-20T15:52:13.468000Z",
+        "alert_delay_s": 1.9511888027191162
+      },
+      "target_s": 15.0,
+      "verdict": "PASS",
+      "host": "measure-anom-37c8",
+      "source_id": "src_c0edb9aecfb8",
+      "spike_started_epoch": 1795189930.4670281,
+      "spike_value_pct": 70.0
+    },
+    "offline": {
+      "from_outage_start_to_Poor_s": 56.788,
+      "from_last_heartbeat_to_Poor_s": 60.276,
+      "from_outage_start_to_Fair_s": 27.492,
+      "from_outage_start_to_Poor_on_dashboard_path_s": 57.457,
+      "target_s": 60.0,
+      "verdict": "FAIL",
+      "collector": "col-measure-off-cc2a",
+      "last_heartbeat_epoch": 1795189948.8881679,
+      "outage_started_epoch": 1795189952.3761022
+    }
+  },
+  "targets": {
+    "dashboard_p95_s": 10.0,
+    "alert_s": 15.0,
+    "offline_s": 60.0
+  }
+}
