@@ -114,14 +114,14 @@ Priority: **P0** = a Phase 3 tick or a mandatory item; **P1** = strengthens Phas
 
 ## 7. Done checklist for Phase 3 (tick from the running system)
 
-- [ ] Collector running on the organizer stream, with raw data and secrets staying local (E16, E17, E19)
-- [ ] Platform shows only allow-listed metadata, per tenant, with the proof (E19, E20, P20, P21)
-- [ ] Dashboard shows the four health states, their thresholds and stale-data handling (P16, P17)
-- [ ] Contextual anomaly alerts; outage detection, buffering and retry shown live (E14, P19)
-- [ ] Egress proof panel shows the exact payload before it leaves, and it matches what the SaaS received (E18, E19, P20)
-- [ ] Measured: dashboard ≤ 10 s (pass at `realtime`), alert ≤ 15 s (pass), zero loss and duplicates (pass), with evidence files; offline ≤ 60 s now passes at 40.26 s with `offline_after_s: 40` (latest run, 2026-11-20 18:30 UTC) (E14, E15, P17 to P19)
-- [ ] Mandatory: real-time measured from timestamps; the shared organizer stream; the egress proof panel
-- [ ] One full rehearsal run recorded (E22)
+- [ ] Collector running on the organizer stream, with raw data and secrets staying local (E16, E17, E19) **Open:** only the simulator has been used; waiting for the organizer's stream format (E26).
+- [x] Platform shows only allow-listed metadata, per tenant, with the proof (E19, E20, P20, P21)
+- [ ] Dashboard shows the four health states, their thresholds and stale-data handling (P16, P17) **Open:** Member 2 to confirm in the browser (thresholds and the offline setting are in place).
+- [x] Contextual anomaly alerts; outage detection, buffering and retry shown live (E14, P19)
+- [x] Egress proof panel shows the exact payload before it leaves, and it matches what the SaaS received (E18, E19, P20)
+- [x] Measured: dashboard ≤ 10 s (pass at `realtime`), alert ≤ 15 s (pass), zero loss and duplicates (pass), with evidence files; offline ≤ 60 s now passes at 40.26 s with `offline_after_s: 40` (latest run, 2026-11-20 18:30 UTC) (E14, E15, P17 to P19); final rehearsal 2026-11-20 19:31 UTC: dashboard 7.00 s (n=93), alerts 2.95 s and 6.43 s, offline 40.17 s, 137 created and 0 missing or duplicated
+- [ ] Mandatory: real-time measured from timestamps; the shared organizer stream; the egress proof panel **Open:** two of three done (real-time measured, egress proof panel); the shared organizer stream is not connected yet.
+- [x] One full rehearsal run recorded (E22) Recorded: [rehearsal-20261120T192509Z.md](p3/evidence/rehearsal-20261120T192509Z.md), 15 steps, no failures.
 
 ## 8. Risks
 

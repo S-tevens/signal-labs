@@ -149,13 +149,13 @@ Write the rehearsal date, commit, machine, profile, stream source, tenant, parti
 |---|---|---|---|---|---|
 | _______ | _______ | _______ | _______ | _______ | _______ |
 
-- [ ] Shared organizer stream connected; its mapping, time and units verified.
-- [ ] One raw local record traced through the real outgoing payload and the same tenant-scoped received payload to an incident and recommendation.
-- [ ] Correct expected vs actual responses documented for the organizer's live scenarios, including a normal observation period and false/missed alerts.
-- [ ] Explain why flagged, which signals contributed and why the recommendation follows; show IDs and timestamps.
-- [ ] Privacy, correlation and noise benefits demonstrated within the scope actually tested; limitations stated honestly.
-- [ ] Timestamped dashboard ≤ 10 s, alert ≤ 15 s and offline ≤ 60 s results shown with sample counts and configuration; failures reported, not hidden.
-- [ ] Forced outage, buffering and recovery checked; created/sent/received ID sets and duplicates independently reconciled.
-- [ ] Real local egress proof panel shown; no real secret or credential is included in evidence.
-- [ ] Both members complete a timed rehearsal and can answer the viva questions.
-- [ ] Final evidence references the exact commit and configuration that judges will see.
+- [ ] Shared organizer stream connected; its mapping, time and units verified. **Open:** the format is not known yet (E26).
+- [x] One raw local record traced through the real outgoing payload and the same tenant-scoped received payload to an incident and recommendation. Done on simulator data with `scripts/trace.ps1 --demo`; repeat on the organizer stream.
+- [ ] Correct expected vs actual responses documented for the organizer's live scenarios, including a normal observation period and false/missed alerts. **Open:** scenario check ran on the simulator only (7 of 7 passed, 0 false alarms in about 1,860 normal metric-windows); not the organizer's scenarios.
+- [x] Explain why flagged, which signals contributed and why the recommendation follows; show IDs and timestamps. Evidence: the trace's incident hop and Member 2's incident explanation (P25).
+- [x] Privacy, correlation and noise benefits demonstrated within the scope actually tested; limitations stated honestly.
+- [x] Timestamped dashboard ≤ 10 s, alert ≤ 15 s and offline ≤ 60 s results shown with sample counts and configuration; failures reported, not hidden. Latest: [rehearsal record](p3/evidence/rehearsal-20261120T192509Z.md) and [summary](p3/evidence/SUMMARY.md).
+- [x] Forced outage, buffering and recovery checked; created/sent/received ID sets and duplicates independently reconciled.
+- [x] Real local egress proof panel shown; no real secret or credential is included in evidence. The evidence bundle script refuses to build if a credential-like value is present.
+- [ ] Both members complete a timed rehearsal and can answer the viva questions. **Open:** the automated rehearsal is recorded; a timed run by both people and the Q&A practice are still to do.
+- [ ] Final evidence references the exact commit and configuration that judges will see. **Open:** freeze the build, then run `scripts/bundle-evidence.ps1` and note the commit here.
