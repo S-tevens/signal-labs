@@ -243,3 +243,15 @@ def test_edge_aggregation_to_saas_incident_and_lineage(client):
     incident=get(client,'/v1/incidents').json()[0]
     assert incident['signals'][0]['signal']=='failed_login'
     assert get(client,f"/v1/lineage/incident/{incident['id']}").json()['payload_ids']==[outgoing[0]['payload_id']]
+
+
+def test_platform_visibility_and_health_reason(client):
+    assert client.get('/v1/system/status').status_code == 401
+    assert get(client, '/v1/session').json() == {'tenant_id':'t-one','region':'in','role':'operator'}
+    assert post(client,p('visible',val=99)).status_code == 200
+    status=get(client,'/v1/system/status').json()
+    assert (status['collectors'],status['payloads'],status['database']) == (1,1,'reachable')
+    assert get(client,'/v1/system/status','d2').json()['payloads'] == 0
+    assert get(client,'/v1/health/thresholds').json()['metrics']['cpu']['poor'] == 95
+    reason=get(client,'/v1/fleet').json()[0]['reason']
+    assert 'cpu' in reason and '99' in reason and '95' in reason
