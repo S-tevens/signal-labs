@@ -161,6 +161,19 @@ python -m uvicorn collector.main:app --port 8101      # enrolls on first start, 
 
 The token only ever travels over verified HTTPS (plain HTTP is refused). The collector receives its own key and signing secret once, creates its own pseudonym secret locally, and saves them to `<DATA_DIR>\credentials.json`, readable only by its owner. After that it uses those instead of the built-in dev defaults, and `http://127.0.0.1:8101/local/identity` shows `credentials: enrolled` (it never shows a secret). A damaged credentials file stops the collector instead of letting it run on defaults. The token is single-use; if saving fails after the platform issued credentials, ask for a new token. `--force` enrolls again. Not built: rotating or revoking credentials from the collector side.
 
+## Bringing in a stream: formats, adapters, replay
+
+The collector takes `POST /ingest` and, when switched on, three more inputs. All feed the same pipeline, so mapping, redaction and the allow-list apply identically. They are unauthenticated and bind to `ADAPTER_BIND` (default `127.0.0.1`), so use them on a trusted network only.
+
+```
+UDP_SYSLOG_PORT=5514   TCP_LINES_PORT=5515   FOLLOW_FILES=C:\logs.log,C:\logs.csv   FOLLOW_FROM_START=1
+```
+
+- **Formats:** NDJSON, key=value, RFC3164 syslog, CSV (a header line sets the columns for the lines after it) and plain text. A row can carry several metrics, one per column.
+- **`collector/mapping.yaml`** is where a new format is handled without code: the field names for host, metric name, value, time and message; metric aliases with unit conversion (`cpu_ratio` x 100, `latency_s` x 1000, `mem_free_pct` as 100 minus); extra time formats (epoch seconds, ms, us and ns and ISO are built in). Fields not listed are dropped before anything else sees them. A bad mapping file stops the collector at start. `MAPPING_FILE` points to another file.
+- **Samples:** `python simulator\samples.py --list` prints five differently shaped streams (wide NDJSON with epoch ms, CSV with day-first dates, key=value with other field names, syslog failed logins, mixed text with secrets).
+- **Replay and timelines:** `python simulatoreplay.py play simulator	imelines\demo.json [--speed 5]` plays a scripted five-minute timeline (steady traffic, CPU spike at 90 s, latency spike at 150 s, failed-login burst at 190 s, SaaS outage 230 to 255 s). The same timeline and seed always build the same recording (`replay.py build ... -o file.jsonl`). Timestamps are always rebased to now, so it is never backdated. A raw log with ISO timestamps also plays; other time formats in raw logs are not rebased.
+
 ## Scenarios
 
 `enroll`, `flood`, `failover`, `tls`, `secret`, `hold`, `failed-logins`, `cpu-spike`, `latency`, `packet-loss`, `disk`, `alert-storm`, `outage`, `delivery`, `remediation`.

@@ -1,0 +1,14 @@
+{
+  "name": "demo-5min",
+  "seed": 7,
+  "length_s": 300,
+  "step_s": 2,
+  "hosts": ["web-1", "web-2", "db-1", "router-1"],
+  "steps": [
+    {"at": 0,   "for": 300, "do": "steady"},
+    {"at": 90,  "for": 30,  "do": "cpu_spike",     "host": "web-1",    "value": 97},
+    {"at": 150, "for": 24,  "do": "latency_spike", "host": "router-1", "value": 600},
+    {"at": 190, "for": 2,   "do": "failed_logins", "host": "db-1",     "count": 30},
+    {"at": 230, "for": 25,  "do": "outage"}
+  ]
+}

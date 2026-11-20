@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
+from .adapters import Adapters
 from .config import COLLECTOR_VERSION, DEV_COLLECTOR_KEY, Config
 from .enroll import EnrollmentError, ensure_enrolled
 from .outbox import LocalStore
@@ -82,11 +83,15 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
         tasks = [asyncio.create_task(flusher()), asyncio.create_task(retention())]
         if host_source is not None:
             tasks.append(asyncio.create_task(host_source.run()))
+        adapters = Adapters(cfg, pipeline)
+        await adapters.start()
+        app.state.adapters = adapters
         if run_sender:
             tasks.append(asyncio.create_task(sender.run()))
         try:
             yield
         finally:
+            await adapters.stop()
             pipeline.flush(force=True)  # do not lose the open windows on shutdown
             for task in tasks:
                 task.cancel()
@@ -120,7 +125,7 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
                 raise HTTPException(413, f"request body over the {cfg.max_ingest_bytes} byte limit")
             chunks.append(chunk)
         text = b"".join(chunks).decode("utf-8", errors="replace")
-        results = [pipeline.process(line) for line in text.splitlines() if line.strip()]
+        results = [r for r in pipeline.process_text(text) if r["status"] != "csv_header"]
         summary: dict[str, int] = {}
         for r in results:
             summary[r["status"]] = summary.get(r["status"], 0) + 1

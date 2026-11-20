@@ -2,22 +2,20 @@ from __future__ import annotations
 
 import json
 
+from .. import mapping
+
 
 def detect(line: str) -> bool:
     return line.lstrip().startswith("{")
 
 
-def parse(line: str) -> dict:
+def parse_many(line: str) -> list[dict]:
+    """NDJSON: one object per line. Field names, units and time formats come from mapping.yaml; other fields are dropped."""
     data = json.loads(line)
     if not isinstance(data, dict):
         raise ValueError("not an object")
-    kind = data.get("kind") or ("metric" if "metric" in data or "name" in data else "log")
-    return {
-        "kind": kind,
-        "ts": data.get("ts"),
-        "tz": data.get("tz"),
-        "host": data.get("host", "unknown"),
-        "name": data.get("metric") or data.get("name"),
-        "value": data.get("value"),
-        "message": data.get("message") or data.get("msg") or "",
-    }
+    return mapping.get().normalize(data, line)
+
+
+def parse(line: str) -> dict:
+    return parse_many(line)[0]
