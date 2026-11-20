@@ -9,6 +9,7 @@ One machine, live timestamps, one run per row (see [README.md](README.md) for ho
 | [15:47:25](measure-20261120T154725Z.md) | `realtime` (2 s window, 1 s grace) | **5.95 s PASS** (n=90) | 3.58 s PASS | n/a | n/a | PASS: 136 created, 0 missing, 0 duplicates, replay 5.8 s |
 | [15:51:07](measure-20261120T155107Z.md) | `realtime` | n/a | n/a | 6.58 s PASS | **60.28 s FAIL** | n/a |
 | [18:30:17](measure-20261120T183017Z.md) | `realtime`, merged code, platform `offline_after_s: 40` | **6.13 s PASS** (n=90) | 5.70 s PASS | 6.24 s PASS | **40.26 s PASS** (from last heartbeat) | PASS: 133 created, 0 missing, 0 duplicates, replay 5.5 s |
+| [19:23:23](measure-20261120T192323Z.md) | `realtime`, after the platform's push-update change merged | **6.01 s PASS** (n=90; latency only) | n/a | n/a | n/a | n/a |
 
 ## What this shows
 
