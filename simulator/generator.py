@@ -59,7 +59,16 @@ def scenario_lines(name: str, count: int) -> list[str]:
 
 
 def send(url: str, lines: list[str]) -> str:
-    req = request.Request(url, data="\n".join(lines).encode(), method="POST")
+    headers = {}
+    try:  # the push token, when the collector was started with -AcceptPush
+        import os
+        from pathlib import Path
+
+        token = os.getenv("INGEST_TOKEN") or (Path(__file__).resolve().parents[1] / "data" / "ingest.token").read_text(encoding="ascii").strip()
+        headers["Authorization"] = f"Bearer {token}"
+    except OSError:
+        pass
+    req = request.Request(url, data="\n".join(lines).encode(), headers=headers, method="POST")
     with request.urlopen(req, timeout=5) as resp:
         return resp.read().decode()
 

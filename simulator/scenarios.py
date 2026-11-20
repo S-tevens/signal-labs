@@ -73,8 +73,18 @@ def _poll(url):
         return 0, None
 
 
+def ingest_auth():
+    """The header our tools send to the collector's ingest routes: the push token, when the collector was started with
+    -AcceptPush (INGEST_TOKEN in the environment, or data/ingest.token). Empty when the collector is open (the default)."""
+    token = os.getenv("INGEST_TOKEN", "")
+    if not token:
+        f = Path(__file__).resolve().parents[1] / "data" / "ingest.token"
+        token = f.read_text(encoding="ascii").strip() if f.exists() else ""
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def collector_send(lines):
-    return _call(f"{COLLECTOR}/ingest", "\n".join(lines).encode())[1]
+    return _call(f"{COLLECTOR}/ingest", "\n".join(lines).encode(), ingest_auth())[1]
 
 
 def saas_get(path):
@@ -704,8 +714,8 @@ def flood():
         log.close()
 
 
-def collector_send_to(base, lines):
-    return _call(f"{base}/ingest", "\n".join(lines).encode())[1]
+def collector_send_to(base, lines, headers=None):
+    return _call(f"{base}/ingest", "\n".join(lines).encode(), headers)[1]
 
 
 def enroll_demo():
