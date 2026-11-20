@@ -72,13 +72,44 @@ On by default. The collector reads this machine's CPU, memory, disk and network 
 
 Real host names, IPs and ports stay on the collector. Each host, probe target and service is sent as its own pseudonymous source. "Packet loss" is the share of failed TCP connection attempts, not an ICMP measurement: it tracks a degrading link but is a different thing, and it works where ping is blocked.
 
+## Retention and limits
+
+A collector cannot be made to fill its disk. Caps apply as data is written (a timer also deletes expired data every 5 minutes). Check what is stored and what has been dropped at `http://127.0.0.1:8101/local/retention`.
+
+| Setting | Meaning | Default |
+|---|---|---|
+| `RAW_RETENTION_S` | raw records are deleted after this long | 86400 (1 day) |
+| `OUTBOX_RETENTION_S` | delivered or rejected transfer records are deleted after this long | 604800 (7 days) |
+| `RAW_MAX_ROWS` | keep at most this many raw records (newest) | 500000 |
+| `MAX_DB_BYTES` | cap on live data in the local database | 1 GiB |
+| `OUTBOX_MAX_PENDING` | cap on undelivered payloads; the **oldest** are dropped first, counted and reported | 100000 |
+| `MAX_LINE_CHARS` | a longer line is never parsed (a short marker is kept) | 65536 |
+| `MAX_INGEST_BYTES` | a larger request body is refused with 413 | 8 MiB |
+| `RETENTION_INTERVAL_S` | how often the retention job runs | 300 |
+
+## Enrolling a collector
+
+A collector can register itself instead of being given keys:
+
+```
+# an admin creates a one-time token for it (POST /v1/enrollment-tokens, admin role), then on the new machine:
+$env:ENROLL_TOKEN = "<token>"; $env:ENROLL_TENANT = "t-acme"
+$env:SAAS_URL = "https://<saas>"; $env:SAAS_CA_FILE = "<ca.pem>"
+python -m uvicorn collector.main:app --port 8101      # enrolls on first start, then reports
+# or enroll without starting: python -m collector.enroll --saas-url https://<saas> --ca <ca.pem> --tenant t-acme --token-file token.txt
+```
+
+The token only ever travels over verified HTTPS (plain HTTP is refused). The collector receives its own key and signing secret once, creates its own pseudonym secret locally, and saves them to `<DATA_DIR>\credentials.json`, readable only by its owner. After that it uses those instead of the built-in dev defaults, and `http://127.0.0.1:8101/local/identity` shows `credentials: enrolled` (it never shows a secret). A damaged credentials file stops the collector instead of letting it run on defaults. The token is single-use; if saving fails after the platform issued credentials, ask for a new token. `--force` enrolls again. Not built: rotating or revoking credentials from the collector side.
+
 ## Scenarios
 
-`failover`, `tls`, `secret`, `failed-logins`, `cpu-spike`, `latency`, `packet-loss`, `disk`, `alert-storm`, `outage`, `delivery`, `remediation`.
+`enroll`, `flood`, `failover`, `tls`, `secret`, `failed-logins`, `cpu-spike`, `latency`, `packet-loss`, `disk`, `alert-storm`, `outage`, `delivery`, `remediation`.
 
 - Run `python simulator\generator.py --seconds 120` (or leave `run-local.ps1`'s simulator running) first, so the SaaS has a baseline.
 - `outage` cuts the collector's link, buffers, reconnects and then proves zero loss by comparing payload ID sets.
 - `delivery` posts a duplicate, an out-of-order event and a same-ID-different-body payload straight to the SaaS.
+- `enroll` has an admin issue a one-time token, starts a brand-new collector (port 8102, no keys configured) that enrolls itself and starts reporting, shows the platform seeing it online, and shows the same token refused a second time. Needs the stack from `run-local.ps1` (it includes a dev admin token); use `-Tls` so the token and credentials travel encrypted.
+- `flood` starts a collector (port 8103) with tight limits and no reachable platform, sends 40,000 lines, an oversize line and a 3 MiB request, then shows the caps holding, the counted losses and the loss event.
 - `remediation` drives the SaaS action lifecycle on the latest incident: a policy check that refuses an action on a different source, then propose, approve, roll back, the audit trail, and a blocked invalid transition. It is a simulation: nothing is executed.
 - Scenarios on the same host within about 2 minutes join one incident, because correlation is per source and time window.
 

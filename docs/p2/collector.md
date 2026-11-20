@@ -63,6 +63,8 @@ Each host, probe path and service is its own pseudonymous source, so one bad pat
 | **A replica dies mid-stream** | the failover proxy sends the next request to the other replica with the same bytes | `failover` scenario, `tests/test_lb.py` |
 | **Late or out-of-order records** | records are placed in windows by event time and windows close after a grace period; late records are sent alone and ordered by event time on the platform | `tests/test_aggregate.py`, `delivery` scenario |
 | **Clock** | all event times are UTC and carry a source timezone (`SOURCE_TZ`, default UTC) | `schema.py` |
+| **Flood, or a very long outage** | caps are enforced as data is written: raw rows (500,000), live database size (1 GiB), pending payloads (100,000). When the outbox is full the **oldest** pending payloads are dropped first. Every drop is counted at `/local/retention` and reported to the platform as a `service_state` event; a scheduled job also deletes expired data (raw after 24 h, delivered records after 7 days) | `tests/test_retention.py` (10,000-line flood), `flood` scenario: 40,000 lines left 500 raw rows, 201 pending payloads and 0.3 MiB on disk |
+| **Oversize input** | a line over 65,536 characters is never parsed (a short marker is kept); a request body over 8 MiB is refused with 413 and is read in pieces, so it cannot exhaust memory | `tests/test_retention.py` |
 | **Malformed input** | parsed defensively; a bad line is counted and skipped | `tests/test_redact_pipeline.py` |
 
 **Zero loss is proven by ID set, not by count.** `demo.ps1 outage` and `demo.ps1 failover` compare the payload IDs the collector created with the IDs the platform holds, judging only payloads old enough to have settled. In the recorded runs: 3,593 judged and 0 missing (outage), 10,866 judged and 0 missing, 0 duplicates stored (failover).
@@ -78,7 +80,8 @@ Each host, probe path and service is its own pseudonymous source, so one bad pat
 | Allow-list schema and data policy | `schema.py`, `policy.py` | security doc, section 3 |
 | Secret scrubbing and pseudonymous IDs | `redact.py` | security doc, section 3 |
 | Auditable transfer records and the egress proof panel | `outbox.py`, `ui/` | security doc, section 4 |
-| Local retention | **not enforced yet** | security doc, limits |
+| Local retention and size limits | `outbox.py`, `main.py` | security doc, section 4 |
+| Enrollment with a one-time token | `enroll.py`, `credentials.py` | security doc, section 4 |
 
 ## 6. Global-ready design (collector side)
 
@@ -95,6 +98,7 @@ Each host, probe path and service is its own pseudonymous source, so one bad pat
 - **Many collectors.** Each collector is independent and keyed by its own credential, so adding collectors adds no shared state on the collector side. The platform scales on its own (stateless replicas).
 - **Volume per collector (an estimate, not a measurement).** With the defaults (5 s windows, 4 host metrics, 3 per probe path, 1 per service), a collector produces on the order of 10 payloads per 5 s window, or roughly 2 per second. At about 300 to 400 bytes each that is on the order of 60 MB a day uncompressed. Aggregation exists precisely to keep this flat as log volume grows: 40 failed-login lines are one payload.
 - **Batching.** Up to 50 payloads per request.
+- **Bounded storage.** The disk footprint is capped by configuration (see the flood row in section 4), so a collector's disk use does not grow with log volume.
 - **Known ceilings.** One SQLite file with a single lock, no request compression, a polled (not pushed) failover check. A larger deployment would use a queue (for example NATS or Kafka) between collection and delivery, and a time-series store behind the platform.
 
 ## 8. How to demo each Phase 2 line
@@ -106,7 +110,8 @@ Each host, probe path and service is its own pseudonymous source, so one bad pat
 | Allow-listing, scrubbing, pseudonymous IDs | `.\scripts\demo.ps1 secret`, then `/local/ui` | secret highlighted on the left, absent on the right, leak check green |
 | Auth, TLS, audit | `/local/lineage/<id>` | raw record IDs, redactions, status and attempts for one payload |
 | Telemetry: CPU, memory, disk, bandwidth, latency, packet loss | `http://127.0.0.1:8101/local/host` (start with `-NoSimulator`) | real values from this machine |
-| Reliability and failure handling | `.\scripts\demo.ps1 outage`, `failover` | buffered count, then zero missing by ID set |
+| Reliability and failure handling | `.\scripts\demo.ps1 outage`, `failover`, `flood` | buffered count, then zero missing by ID set; a flood stays within its caps and the loss is reported |
+| Authentication and enrollment | `.\scripts\run-local.ps1 -Tls`, then `.\scripts\demo.ps1 enroll` | a collector with no keys enrolls itself, appears online, and its token is single-use |
 | UTC, out-of-order, idempotent | `.\scripts\demo.ps1 delivery` | duplicate stored once, late event ordered by event time, conflict detected |
 
 ## 9. Tests that back the claims
@@ -123,6 +128,8 @@ Each host, probe path and service is its own pseudonymous source, so one bad pat
 | TLS: valid, wrong CA, wrong name, plain HTTP, require-TLS | `test_tls.py` |
 | Egress panel, local-only guard, safe rendering | `test_egress_ui.py` |
 | Failover proxy | `test_lb.py` |
+| Retention, size caps, oversize input, loss reporting | `test_retention.py` |
+| Enrollment: single-use token, TLS-only, credentials file, no secret in output | `test_enroll.py` |
 
 Run them with `python -m pytest collector saas -q`. The TLS tests skip unless `cryptography` is installed.
 
@@ -130,8 +137,8 @@ Run them with `python -m pytest collector saas -q`. The TLS tests skip unless `c
 
 See the full list in [the security document](../p1/security-and-data-protection.md#limits-and-what-production-would-need). The ones that matter most for this design:
 
-- retention is not enforced and the outbox is never pruned (task E7);
-- secrets are environment variables with dev defaults, and enrollment is not built (task E8);
+- under a flood or a long outage the oldest undelivered data is dropped by design (counted and reported, never silent);
+- unenrolled collectors fall back to dev credentials, and credential rotation and revocation are not built;
 - no client certificates, and the audit record is not tamper-evident;
 - the local health verdict is constant; failed-login detection is per window;
 - no compression and a single SQLite writer limit throughput.
