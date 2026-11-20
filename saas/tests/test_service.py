@@ -255,3 +255,36 @@ def test_platform_visibility_and_health_reason(client):
     assert get(client,'/v1/health/thresholds').json()['metrics']['cpu']['poor'] == 95
     reason=get(client,'/v1/fleet').json()[0]['reason']
     assert 'cpu' in reason and '99' in reason and '95' in reason
+
+
+def test_phase4_incident_evidence_and_payload_tenant_isolation(client):
+    now=time.time()
+    normal=[p(f'phase4-normal-{i}',now-25+i,val=20+i%2) for i in range(8)]
+    assert len(post(client,normal).json()['accepted'])==8
+    assert get(client,'/v1/incidents').json()==[]
+    anomaly=p('phase4-critical',now-1,val=99)
+    assert post(client,anomaly).status_code==200
+    incident=get(client,'/v1/incidents').json()[0]
+    signal=incident['signals'][0]
+    assert signal['value']==99 and signal['threshold']==95 and signal['comparison']=='>='
+    assert signal['event_ts_utc']==anomaly['event_ts_utc'] and signal['alert_ts_utc']
+    assert signal['payload_id']==anomaly['payload_id'] and incident['recommendation']['action']
+    path='/v1/objects/observation/'+anomaly['payload_id']
+    assert get(client,path).json()['properties']['payload_id']==anomaly['payload_id']
+    assert get(client,path,'d2').status_code==404
+
+
+def test_phase4_heartbeat_threshold_from_config(db_url):
+    from saas.store import Store
+    from saas.ingest import refresh
+    from pathlib import Path
+    import yaml
+    config=yaml.safe_load(Path('saas/config/thresholds.yaml').read_text())
+    assert config['offline_after_s']==40
+    now=time.time()
+    with TestClient(create_app('in',db_url,AUTH)) as c:
+        h={'collector_id':'col-one','collector_version':'1.0.0','config_hash':'hash','resource_usage':{'cpu':20.0}}
+        assert post(c,h,path='/v1/heartbeat').status_code==200
+        with Store(db_url).connect('t-one') as db:
+            db.execute('UPDATE fleet SET last_seen=?',(now-41,)); refresh(db,config,now)
+            assert db.execute('SELECT state FROM fleet').fetchone()['state']=='Poor'

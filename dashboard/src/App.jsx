@@ -39,7 +39,7 @@ import {
 import { LIVE, useLiveData } from "./api.js";
 import Analytics from "./Analytics.jsx";
 import DataFlow from "./DataFlow.jsx";
-import { ObjectExplorer, HealthHistory, IncidentWorkspace } from "./Platform.jsx";
+import { ObjectExplorer, HealthHistory, IncidentWorkspace, ReceivedPayload } from "./Platform.jsx";
 
 // Live data from the SaaS when a dashboard token is configured, labelled demo data otherwise.
 const DataContext = React.createContext(null);
@@ -60,6 +60,7 @@ const pages = {
     "Performance proof",
     "Delivery evidence, measured against your hackathon targets.",
   ],
+  received: ["Received payload", "Inspect metadata stored for your tenant."],
   objects: ["Object explorer", "Explore linked metadata across your monitored environment."],
   history: ["Health history", "Review collector health changes and their recorded reasons."],
   egress: [
@@ -73,13 +74,14 @@ const nav = [
   { id: "flow", label: "Data flow", icon: GitBranch },
   { id: "incidents", label: "Incidents", icon: Activity },
   { id: "proof", label: "Performance proof", icon: ShieldCheck },
+  { id: "received", label: "Received payload", icon: FileJson },
   { id: "objects", label: "Object explorer", icon: Database },
   { id: "history", label: "Health history", icon: Clock3 },
   { id: "egress", label: "Local egress", icon: FileJson },
 ];
 const regionName = { in: "India", eu: "Europe" };
 function currentPage() {
-  const page = location.hash.replace("#/", "");
+  const page = location.hash.replace("#/", "").split("?")[0];
   return pages[page] ? page : "fleet";
 }
 function Badge({ state }) {
@@ -1195,6 +1197,7 @@ function Dashboard() {
             />
           )}
           {page === "proof" && <Proof />}
+          {page === "received" && <ReceivedPayload />}
           {page === "objects" && <ObjectExplorer />}
           {page === "history" && <HealthHistory />}
           {page === "egress" && <Egress notify={setToast} />}

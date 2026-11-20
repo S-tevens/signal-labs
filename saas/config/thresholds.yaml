@@ -1,5 +1,5 @@
 stale_after_s: 30
-offline_after_s: 60
+offline_after_s: 40
 baseline_min: 8
 baseline_window: 60
 anomaly_z: 4.0

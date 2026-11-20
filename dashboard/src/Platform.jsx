@@ -39,6 +39,27 @@ export function ObjectExplorer() {
     <ObjectDetails selected={selected} onSelect={setSelected}/>
   </section>;
 }
+export function ReceivedPayload() {
+  const initial = new URLSearchParams(location.hash.split('?')[1] || '').get('id') || '';
+  const [id,setId] = useState(initial), [submitted,setSubmitted] = useState(initial), [payload,setPayload] = useState(null), [error,setError] = useState(''), [loading,setLoading] = useState(false);
+  useEffect(() => {
+    const update=()=>{ const next=new URLSearchParams(location.hash.split('?')[1] || '').get('id') || ''; setId(next); setSubmitted(next); };
+    window.addEventListener('hashchange',update); return ()=>window.removeEventListener('hashchange',update);
+  }, []);
+  useEffect(() => {
+    if (!LIVE || !submitted) { setPayload(null); return; }
+    const ctrl=new AbortController(); setPayload(null); setError(''); setLoading(true);
+    request(path('observation',submitted),{signal:ctrl.signal}).then(setPayload).catch(e=>{if(e.name !== 'AbortError') setError(e.message);}).finally(()=>{if(!ctrl.signal.aborted)setLoading(false);});
+    return ()=>ctrl.abort();
+  },[submitted]);
+  return <section className="panel platform-panel received-page"><h2>Received payload</h2><p>Enter the payload ID from the collector’s local egress panel to inspect the matching metadata in your tenant.</p><form className="received-search" onSubmit={e=>{e.preventDefault(); setSubmitted(id.trim());}}><label htmlFor="received-id">Payload ID</label><div><input id="received-id" value={id} onChange={e=>setId(e.target.value)} placeholder="Paste a payload ID" required/><button className="button" disabled={!LIVE || !id.trim()} type="submit">Find payload</button></div></form><p className="platform-hint">These are validated, normalized stored fields. Formatting and timestamps can differ from the original transmitted bytes; compare fields with the collector’s egress panel.</p>{!LIVE ? <Message>Connect the SaaS to inspect a received payload.</Message> : loading ? <Message>Loading payload…</Message> : error ? <Message>Could not find this payload for the current tenant: {error}</Message> : payload ? <div className="platform-object"><div className="platform-object-head"><strong>Stored observation · {payload.id}</strong></div><pre>{JSON.stringify(payload.properties,null,2)}</pre></div> : <Message>Enter a payload ID to begin.</Message>}</section>;
+}
+
+function SignalEvidence({lineage}) {
+  const signals=lineage?.signals || [];
+  if (!signals.length) return <Message>No retained signal details are available for this incident.</Message>;
+  return <div className="signal-evidence"><h3>Why was it flagged?</h3><p>Retained incident signals, in event-time order. A recommendation is an investigation hypothesis, not proof of cause.</p>{signals.map((s,i)=><article className="signal-evidence-card" key={`${s.payload_id || 'signal'}-${i}`}><div><strong>{(s.signal || 'Unknown signal').replaceAll('_',' ')}</strong><span>{s.severity || 'Severity unavailable'}</span></div><p>{s.why || 'Detection reason unavailable.'}</p><dl><div><dt>Observed</dt><dd>{s.value == null ? 'Unavailable' : `${s.value}${s.unit ? ` ${s.unit}` : ''}`}</dd></div><div><dt>Method</dt><dd>{s.method || 'Unavailable'}</dd></div><div><dt>Baseline</dt><dd>{s.baseline == null ? 'Not recorded' : `${s.baseline}${s.samples != null ? ` (${s.samples} samples)` : ''}`}</dd></div><div><dt>Threshold</dt><dd>{s.threshold == null ? 'Not recorded' : `${s.comparison || ''} ${s.threshold}`}</dd></div><div><dt>Event time (UTC)</dt><dd>{s.event_ts_utc || 'Not recorded'}</dd></div><div><dt>Alert time (UTC)</dt><dd>{s.alert_ts_utc || 'Not recorded for this signal'}</dd></div><div><dt>Persistence</dt><dd>{s.persistence_windows == null ? 'Not recorded / not applicable' : `${s.persistence_windows} windows`}</dd></div></dl>{s.payload_id && <a href={`#/received?id=${encodeURIComponent(s.payload_id)}`}>Inspect payload · {s.payload_id}</a>}</article>)}</div>;
+}
 function Thresholds() {
   const [data,setData] = useState(null), [error,setError] = useState('');
   useEffect(() => {
@@ -60,7 +81,7 @@ export function IncidentWorkspace({ incidentId, mode }) {
     try { const [l, a] = await Promise.all([request(`/v1/lineage/incident/${encodeURIComponent(incidentId)}`,{signal}), request(`/v1/actions?incident_id=${encodeURIComponent(incidentId)}`,{signal})]); setLineage(l); setActions(a.actions); setCatalog(a.types); setError(''); }
     catch(e) { if(e.name !== 'AbortError') setError(e.message); }
   }
-  useEffect(() => { if(mode !== 'live') return; const ctrl=new AbortController(); load(ctrl.signal); return () => ctrl.abort(); }, [incidentId,mode]);
+  useEffect(() => { setLineage(null); setActions([]); setSelected(null); setError(''); if(mode !== 'live') return; const ctrl=new AbortController(); load(ctrl.signal); return () => ctrl.abort(); }, [incidentId,mode]);
   async function submit(e) {
     e.preventDefault(); setBusy(true); setError('');
     const params = type === 'isolate_source' ? {source_id:lineage?.source_id} : type === 'rotate_credentials' ? {credential_ref:credential} : type === 'scale_capacity' ? {service, replicas:Number(replicas)} : {service};
@@ -70,7 +91,7 @@ export function IncidentWorkspace({ incidentId, mode }) {
   async function transition(id, operation) { setBusy(true); setError(''); try { await request(`/v1/actions/${encodeURIComponent(id)}/${operation}`,{method:'POST'}); await load(); } catch(e) { setError(e.message); } finally { setBusy(false); } }
   if(mode !== 'live') return <div className="platform-workspace"><h3>Evidence & simulated actions</h3><Message>Connect the SaaS to inspect actual payload lineage and propose actions.</Message></div>;
   return <div className="platform-workspace"><h3>Evidence & lineage</h3>{error && <Message>{error}</Message>}{!lineage ? <Message>Loading evidence…</Message> : <><p>Raw records remain local. Follow these metadata objects to see the evidence behind this recommendation.</p><div className="platform-links"><button className="button small" onClick={() => setSelected({type:'collector',id:lineage.collector_id})}>Collector · {lineage.collector_id}</button><button className="button small" onClick={() => setSelected({type:'source',id:lineage.source_id})}>Source · {lineage.source_id}</button>{lineage.payload_ids.map(id => <button className="button small" key={id} onClick={() => setSelected({type:'observation',id})}>Payload · {id}</button>)}<button className="button small" onClick={() => setSelected({type:'recommendation',id:incidentId})}>Recommendation</button></div><p className="platform-hint">{lineage.note}</p></>}
-    <ObjectDetails selected={selected} onSelect={setSelected}/><h3>Simulated actions</h3><p>Propose an action for operator review. No infrastructure commands are executed.</p>
+    <SignalEvidence lineage={lineage}/><ObjectDetails selected={selected} onSelect={setSelected}/><h3>Simulated actions</h3><p>Propose an action for operator review. No infrastructure commands are executed.</p>
     <form onSubmit={submit} className="platform-form"><label>Action type<select value={type} onChange={e => setType(e.target.value)}>{Object.keys(catalog).map(t => <option key={t} value={t}>{labels[t] || t}</option>)}</select></label>
       {['restart_service','scale_capacity'].includes(type) && <label>Service name<input value={service} required maxLength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,63}" onChange={e => setService(e.target.value)} placeholder="api-service"/></label>}
       {type === 'rotate_credentials' && <label>Credential reference<input value={credential} required maxLength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,63}" onChange={e => setCredential(e.target.value)} placeholder="service-account"/></label>}

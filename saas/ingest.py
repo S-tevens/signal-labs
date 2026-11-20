@@ -54,8 +54,10 @@ def process(db,p,config,now=None):
             streak=(pending['consecutive'] if pending else 0)+1 if detected else 0
             db.execute('INSERT INTO anomaly_pending(collector,source,metric,last_ts,consecutive) VALUES(?,?,?,?,?) ON CONFLICT(tenant_id,collector,source,metric) DO UPDATE SET last_ts=excluded.last_ts,consecutive=excluded.consecutive',(p['collector_id'],p['source_id'],name,p['event_ts_utc'],streak))
             if detected and streak==config.get('anomaly_persistence_windows',2):
-                signal={**detected,'persistence_windows':streak,'why':detected['why']+f' for {streak} consecutive windows'}
-        if not signal and metric_state(metric,config)=='Poor': signal={'signal':name,'value':metric['value'],'why':f'{name} breached configured critical threshold','severity':'critical','method':'threshold fallback'}
+                signal={**detected,'unit':metric.get('unit'),'persistence_windows':streak,'why':detected['why']+f' for {streak} consecutive windows'}
+        if not signal and metric_state(metric,config)=='Poor':
+            rule=config['metrics'].get(name,{})
+            signal={'signal':name,'value':metric['value'],'unit':metric.get('unit'),'threshold':rule.get('poor'),'comparison':'<=' if rule.get('inverse') else '>=','why':f"{name} breached configured critical threshold ({'<= ' if rule.get('inverse') else '>= '}{rule.get('poor')})",'severity':'critical','method':'threshold fallback'}
     elif event:
         category=event['category'].lower(); failed=category in {'failed_login','auth_failure','authentication_failure','login_failure','failed_logins','auth_failed','auth_failure_burst'}
         if failed or event['severity'] in {'critical','high','error'}:
