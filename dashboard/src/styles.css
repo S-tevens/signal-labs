@@ -2868,3 +2868,7 @@ button.top-avatar { border: 0; cursor: pointer; font: inherit; }
 .app-shell { overflow: clip; }
 .sidebar { scrollbar-width: none; }
 .sidebar::-webkit-scrollbar { display: none; }
+/* Sidebar logo: a window sized from the logo's real extent (content 1656 x 346 px inside a 2172 x 724 image), scaled to
+   0.1063, with 4 px of room on every side so no letter is ever clipped. */
+.sidebar .image-brand { width: 184px; height: 41px; margin: 0 8px; background: transparent; border-radius: 0; overflow: hidden; }
+.sidebar .image-brand img { width: 231px; left: -23.4px; top: -16.8px; }
