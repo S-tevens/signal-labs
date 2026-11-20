@@ -2872,3 +2872,15 @@ button.top-avatar { border: 0; cursor: pointer; font: inherit; }
    0.1063, with 4 px of room on every side so no letter is ever clipped. */
 .sidebar .image-brand { width: 184px; height: 41px; margin: 0 8px; background: transparent; border-radius: 0; overflow: hidden; }
 .sidebar .image-brand img { width: 231px; left: -23.4px; top: -16.8px; }
+
+/* Expandable lists in the incident detail */
+.expandable { position: relative; }
+.expandable-bar { position: sticky; top: 8px; z-index: 6; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; padding: 9px 12px 9px 16px; background: #fff; border: 1px solid #cfd8e6; border-radius: 12px; box-shadow: 0 8px 22px #1a223022; font-size: .85rem; color: #3b4452; }
+.expandable-foot { display: flex; justify-content: center; margin: 12px 0 4px; }
+.expandable-foot .button { display: inline-flex; align-items: center; gap: 10px; }
+.expandable-more { padding: 1px 9px; border-radius: 999px; background: #ffffff2e; font-size: .76rem; }
+.button.small.secondary { background: #fff; color: #2b323a; border: 1px solid #cdd1d6; }
+.signal-evidence-list { display: grid; gap: 12px; }
+.signal-summary { margin: 6px 0 4px; color: #4b535b; font-size: .85rem; }
+
+.expandable { scroll-margin-top: 110px; }

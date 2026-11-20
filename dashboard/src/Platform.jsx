@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { request, LIVE, currentToken } from './api';
 
 const TYPES = ['tenant', 'collector', 'source', 'observation', 'incident', 'recommendation', 'action'];
@@ -6,6 +6,29 @@ const labels = { restart_service: 'Restart service', isolate_source: 'Isolate so
 const path = (type, id) => `/v1/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}`;
 
 function Message({ children }) { return <div className="platform-message" role="status">{children}</div>; }
+// A long list that starts short. "Show all" opens the full list; while it is open a bar with "Show less" stays pinned at
+// the top of the scrolling panel, and there is another button under the list, so collapsing is never a long scroll away.
+function ExpandableList({ items, limit = 4, noun = 'items', className }) {
+  const [open, setOpen] = useState(false);
+  const top = useRef(null);
+  const total = items.length;
+  if (total <= limit) return <div className={className}>{items}</div>;
+  const collapse = () => { setOpen(false); requestAnimationFrame(() => requestAnimationFrame(() => top.current?.scrollIntoView({ block: 'start' }))); };  // after the shorter list is drawn, bring it back into view
+  return <div className="expandable" ref={top}>
+    {open && <div className="expandable-bar" role="status"><span>Showing all {total} {noun}</span><button type="button" className="button small secondary" onClick={collapse}>Show less</button></div>}
+    <div className={className}>{open ? items : items.slice(0, limit)}</div>
+    <div className="expandable-foot">
+      {open ? <button type="button" className="button small secondary" onClick={collapse}>Show less</button>
+        : <button type="button" className="button small" onClick={() => setOpen(true)} aria-expanded="false">Show all {total} {noun}<span className="expandable-more">{total - limit} more</span></button>}
+    </div>
+  </div>;
+}
+
+function SignalSummary({ signals }) {
+  const counts = signals.reduce((m, s) => { const k = (s.signal || 'unknown').replaceAll('_', ' '); m[k] = (m[k] || 0) + 1; return m; }, {});
+  return <p className="signal-summary">{signals.length} retained signals: {Object.entries(counts).map(([k, n]) => `${k} ×${n}`).join(', ')}</p>;
+}
+
 function ObjectDetails({ selected, onSelect }) {
   const [obj, setObj] = useState(null), [error, setError] = useState('');
   useEffect(() => {
@@ -58,7 +81,7 @@ export function ReceivedPayload() {
 function SignalEvidence({lineage}) {
   const signals=lineage?.signals || [];
   if (!signals.length) return <Message>No retained signal details are available for this incident.</Message>;
-  return <div className="signal-evidence"><h3>Why was it flagged?</h3><p>Retained incident signals, in event-time order. A recommendation is an investigation hypothesis, not proof of cause.</p>{signals.map((s,i)=><article className="signal-evidence-card" key={`${s.payload_id || 'signal'}-${i}`}><div><strong>{(s.signal || 'Unknown signal').replaceAll('_',' ')}</strong><span>{s.severity || 'Severity unavailable'}</span></div><p>{s.why || 'Detection reason unavailable.'}</p><dl><div><dt>Observed</dt><dd>{s.value == null ? 'Unavailable' : `${s.value}${s.unit ? ` ${s.unit}` : ''}`}</dd></div><div><dt>Method</dt><dd>{s.method || 'Unavailable'}</dd></div><div><dt>Baseline</dt><dd>{s.baseline == null ? 'Not recorded' : `${s.baseline}${s.samples != null ? ` (${s.samples} samples)` : ''}`}</dd></div><div><dt>Threshold</dt><dd>{s.threshold == null ? 'Not recorded' : `${s.comparison || ''} ${s.threshold}`}</dd></div><div><dt>Event time (UTC)</dt><dd>{s.event_ts_utc || 'Not recorded'}</dd></div><div><dt>Alert time (UTC)</dt><dd>{s.alert_ts_utc || 'Not recorded for this signal'}</dd></div><div><dt>Persistence</dt><dd>{s.persistence_windows == null ? 'Not recorded / not applicable' : `${s.persistence_windows} windows`}</dd></div></dl>{s.payload_id && <a href={`#/received?id=${encodeURIComponent(s.payload_id)}`}>Inspect payload · {s.payload_id}</a>}</article>)}</div>;
+  return <div className="signal-evidence"><h3>Why was it flagged?</h3><p>Retained incident signals, in event-time order. A recommendation is an investigation hypothesis, not proof of cause.</p><SignalSummary signals={signals}/><ExpandableList className="signal-evidence-list" noun="signals" limit={3} items={signals.map((s,i)=><article className="signal-evidence-card" key={`${s.payload_id || 'signal'}-${i}`}><div><strong>{(s.signal || 'Unknown signal').replaceAll('_',' ')}</strong><span>{s.severity || 'Severity unavailable'}</span></div><p>{s.why || 'Detection reason unavailable.'}</p><dl><div><dt>Observed</dt><dd>{s.value == null ? 'Unavailable' : `${s.value}${s.unit ? ` ${s.unit}` : ''}`}</dd></div><div><dt>Method</dt><dd>{s.method || 'Unavailable'}</dd></div><div><dt>Baseline</dt><dd>{s.baseline == null ? 'Not recorded' : `${s.baseline}${s.samples != null ? ` (${s.samples} samples)` : ''}`}</dd></div><div><dt>Threshold</dt><dd>{s.threshold == null ? 'Not recorded' : `${s.comparison || ''} ${s.threshold}`}</dd></div><div><dt>Event time (UTC)</dt><dd>{s.event_ts_utc || 'Not recorded'}</dd></div><div><dt>Alert time (UTC)</dt><dd>{s.alert_ts_utc || 'Not recorded for this signal'}</dd></div><div><dt>Persistence</dt><dd>{s.persistence_windows == null ? 'Not recorded / not applicable' : `${s.persistence_windows} windows`}</dd></div></dl>{s.payload_id && <a href={`#/received?id=${encodeURIComponent(s.payload_id)}`}>Inspect payload · {s.payload_id}</a>}</article>)}/></div>;
 }
 function Thresholds() {
   const [data,setData] = useState(null), [error,setError] = useState('');
@@ -126,7 +149,7 @@ export function IncidentWorkspace({ incidentId, mode }) {
   }
   async function transition(id, operation) { setBusy(true); setError(''); try { await request(`/v1/actions/${encodeURIComponent(id)}/${operation}`,{method:'POST'}); await load(); } catch(e) { setError(e.message); } finally { setBusy(false); } }
   if(mode !== 'live') return <div className="platform-workspace"><h3>Evidence & simulated actions</h3><Message>Connect the SaaS to inspect actual payload lineage and propose actions.</Message></div>;
-  return <div className="platform-workspace"><h3>Evidence & lineage</h3>{error && <Message>{error}</Message>}{!lineage ? <Message>Loading evidence…</Message> : <><p>Raw records remain local. Follow these metadata objects to see the evidence behind this recommendation.</p><div className="platform-links"><button className="button small" onClick={() => setSelected({type:'collector',id:lineage.collector_id})}>Collector · {lineage.collector_id}</button><button className="button small" onClick={() => setSelected({type:'source',id:lineage.source_id})}>Source · {lineage.source_id}</button>{lineage.payload_ids.map(id => <button className="button small" key={id} onClick={() => setSelected({type:'observation',id})}>Payload · {id}</button>)}<button className="button small" onClick={() => setSelected({type:'recommendation',id:incidentId})}>Recommendation</button></div><p className="platform-hint">{lineage.note}</p></>}
+  return <div className="platform-workspace"><h3>Evidence & lineage</h3>{error && <Message>{error}</Message>}{!lineage ? <Message>Loading evidence…</Message> : <><p>Raw records remain local. Follow these metadata objects to see the evidence behind this recommendation.</p><div className="platform-links"><button className="button small" onClick={() => setSelected({type:'collector',id:lineage.collector_id})}>Collector · {lineage.collector_id}</button><button className="button small" onClick={() => setSelected({type:'source',id:lineage.source_id})}>Source · {lineage.source_id}</button><button className="button small" onClick={() => setSelected({type:'recommendation',id:incidentId})}>Recommendation</button></div><ExpandableList className="platform-links" noun="payloads" limit={4} items={(lineage.payload_ids || []).map(id => <button className="button small" key={id} onClick={() => setSelected({type:'observation',id})}>Payload · {id}</button>)}/><p className="platform-hint">{lineage.note}</p></>}
     <SignalEvidence lineage={lineage}/><AiSummary incidentId={incidentId}/><ObjectDetails selected={selected} onSelect={setSelected}/><h3>Simulated actions</h3><p>Propose an action for operator review. No infrastructure commands are executed.</p>
     <form onSubmit={submit} className="platform-form"><label>Action type<select value={type} onChange={e => setType(e.target.value)}>{Object.keys(catalog).map(t => <option key={t} value={t}>{labels[t] || t}</option>)}</select></label>
       {['restart_service','scale_capacity'].includes(type) && <label>Service name<input value={service} required maxLength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" onChange={e => setService(e.target.value)} placeholder="api-service"/></label>}
