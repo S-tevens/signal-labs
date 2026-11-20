@@ -2743,3 +2743,17 @@ footer { color: #a1aab2; }
 .received-search { margin:24px 0 14px; display:grid; gap:8px; max-width:760px; }.received-search label { font-size:.8rem; font-weight:600; }.received-search>div { display:flex; gap:10px; }.received-search input { flex:1; min-width:0; border:1px solid #dce3eb; padding:11px 13px; border-radius:9px; }.received-page .platform-object pre { overflow:auto; max-height:500px; }
 .signal-evidence { margin:24px 0; }.signal-evidence>p { color:#75828e; line-height:1.55; font-size:.82rem; }.signal-evidence-card { margin-top:12px; padding:15px; background:#f6f8fb; border:1px solid #e8edf3; border-radius:12px; }.signal-evidence-card>div { display:flex; justify-content:space-between; gap:10px; }.signal-evidence-card>div span { color:#a27653; font-size:.72rem; }.signal-evidence-card p { font-size:.8rem; color:#647280; line-height:1.5; }.signal-evidence-card dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:15px 0; }.signal-evidence-card dt { font-size:.7rem; color:#8a97a2; }.signal-evidence-card dd { margin:4px 0 0; font-size:.75rem; color:#354554; overflow-wrap:anywhere; }.signal-evidence-card a { color:#3769b7; font-size:.75rem; overflow-wrap:anywhere; }
 .tenant-scope,.proof-sample-info { color:#687988; font-size:.76rem; margin:10px 0 15px; line-height:1.5; }.tenant-scope strong { color:#344c61; }
+
+/* Polish layer: sentence-case labels read as words, not template chrome; offline rows recede so live collectors lead. */
+.card-kicker, .eyebrow { letter-spacing: 0; text-transform: none; font-size: .78rem; font-weight: 500; }
+.row-offline { opacity: .62; }
+.row-offline:hover { opacity: 1; }
+.row-offline .badge, .row-offline .state-badge { filter: saturate(.6); }
+tr:focus-visible, .row-offline:focus-visible { outline: 2px solid #2863ed; outline-offset: -2px; }
+small { font-variant-numeric: tabular-nums; }
+
+/* Collector status wheel */
+.status-wheel { display: block; width: 100%; max-width: 300px; margin: 10px auto 4px; }
+.status-wheel .wheel-count { font-size: 30px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.status-wheel .wheel-name { font-size: 11.5px; font-weight: 500; }
+.fleet-status-hero { min-height: 0; }

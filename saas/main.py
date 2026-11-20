@@ -32,21 +32,29 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
     # for the affected tenant. A periodic snapshot covers listener reconnects.
     condition=asyncio.Condition(); versions={}; listener_ready=asyncio.Event()
     async def listen_updates():
-        import psycopg
-        while True:
-            try:
-                async with await psycopg.AsyncConnection.connect(store.url,autocommit=True,connect_timeout=5) as conn:
-                    await conn.execute('LISTEN signal_dashboard_updates')
-                    listener_ready.set()
-                    async for notification in conn.notifies():
-                        async with condition:
-                            tenant=notification.payload
-                            versions[tenant]=versions.get(tenant,0)+1
-                            condition.notify_all()
-            except asyncio.CancelledError: raise
-            except Exception:
-                logging.exception('Dashboard notification listener disconnected; reconnecting')
-                await asyncio.sleep(2)
+        # psycopg's async mode cannot run on Windows' default event loop (it raises InterfaceError, so a replica never
+        # became ready there). The blocking listener therefore runs in a thread and hands each notification to the loop.
+        import psycopg, threading
+        loop=asyncio.get_running_loop(); stop=threading.Event()
+        async def bump(tenant):
+            async with condition:
+                versions[tenant]=versions.get(tenant,0)+1
+                condition.notify_all()
+        def run():
+            while not stop.is_set():
+                try:
+                    with psycopg.connect(store.url,autocommit=True,connect_timeout=5) as conn:
+                        conn.execute('LISTEN signal_dashboard_updates')
+                        loop.call_soon_threadsafe(listener_ready.set)
+                        while not stop.is_set():
+                            for notification in conn.notifies(timeout=1.0):
+                                asyncio.run_coroutine_threadsafe(bump(notification.payload),loop)
+                except Exception:
+                    logging.exception('Dashboard notification listener disconnected; reconnecting')
+                    stop.wait(2)
+        threading.Thread(target=run,daemon=True,name='dashboard-listener').start()
+        try: await asyncio.Event().wait()
+        finally: stop.set()
     @asynccontextmanager
     async def lifespan(app):
         await asyncio.to_thread(store.check)

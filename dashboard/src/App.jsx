@@ -260,11 +260,10 @@ function Fleet({ rows, onSelect, onIncident, range }) {
     <>
       <div className="fleet-hero-grid">
         <section className="panel fleet-status-hero" aria-label="Collector health summary">
-          <div className="hero-card-heading"><div><span className="card-kicker">YOUR INFRASTRUCTURE</span><h2>Collector status</h2></div><span className="light-pill">{rows.length} collectors</span></div>
-          <div className="orb-area"><div className="orb-glow" aria-hidden="true"><span className="orb-needle one"/><span className="orb-needle two"/><span className="orb-needle three"/><span className="orb-center"/></div></div>
+          <div className="hero-card-heading"><div><span className="card-kicker">Your infrastructure</span><h2>Collector status</h2></div><span className="light-pill">{rows.length} collectors</span></div>
+          <StatusWheel counts={Object.fromEntries(["Excellent", "Good", "Fair", "Poor"].map((state) => [state, rows.filter((c) => c.state === state).length]))} total={rows.length} />
           <div className="hero-total">{String(rows.length).padStart(2, "0")}</div>
           <p className="hero-caption">Monitored collectors in {rows.some(c => c.region === 'eu') && rows.some(c => c.region === 'in') ? 'all demo regions' : rows[0]?.region === 'eu' ? 'Europe' : 'India'} · {online} reporting</p>
-          <div className="hero-health-stats">{["Excellent", "Good", "Fair", "Poor"].map(state => <div key={state}><i className={`tiny-dot ${state.toLowerCase()}`}/><span>{state}</span><strong>{String(rows.filter(c => c.state === state).length).padStart(2, "0")}</strong></div>)}</div>
         </section>
         <div className="stats-grid">
         <div className="stat-card">
@@ -513,7 +512,7 @@ function Fleet({ rows, onSelect, onIncident, range }) {
             </thead>
             <tbody>
               {filtered.map((c) => (
-                <tr key={c.id} onClick={() => onSelect(c)}>
+                <tr key={c.id} onClick={() => onSelect(c)} className={c.online === false ? "row-offline" : undefined}>
                   <td>
                     <button
                       className="collector-name"
@@ -834,21 +833,21 @@ function Proof() {
         <PanelTitle icon={Clock3} title="How evidence should be measured" />
         <div>
           <article>
-            <span className="eyebrow">DASHBOARD LATENCY</span>
+            <span className="eyebrow">Dashboard latency</span>
             <p>
               Dashboard render time minus source event time. Report the 95th
               percentile over a stated sample window.
             </p>
           </article>
           <article>
-            <span className="eyebrow">ALERT & OFFLINE TIME</span>
+            <span className="eyebrow">Alert and offline time</span>
             <p>
               Compare the injected breach with alert creation, and the last
               heartbeat with the transition to Poor.
             </p>
           </article>
           <article>
-            <span className="eyebrow">DELIVERY INTEGRITY</span>
+            <span className="eyebrow">Delivery integrity</span>
             <p>
               Compare sent and received unique IDs. Retries can repeat on the
               wire; each payload should be stored once.
@@ -1111,7 +1110,7 @@ function Dashboard() {
         <main>
           <div className="page-heading">
             <div>
-              {page === "egress" && <div className="eyebrow">LOCAL COLLECTOR · SYNTHETIC RECORDS</div>}
+              {page === "egress" && <div className="eyebrow">Local collector, synthetic records</div>}
               <h1>
                 {pages[page][0]}
 
@@ -1296,7 +1295,7 @@ function Detail({ detail, close }) {
       >
         <div className="drawer-top">
           <span className="eyebrow">
-            {type === "collector" ? "COLLECTOR DETAILS" : "EXPLAINABLE AIOPS"} ·{" "}
+            {type === "collector" ? "Collector details" : "Explainable AIOps"} ·{" "}
             {mode === "live" ? "LIVE" : "DEMO"}
           </span>
           <button
@@ -1395,6 +1394,52 @@ function Detail({ detail, close }) {
         )}
       </section>
     </div>
+  );
+}
+
+// Collector health as a wheel of four rounded segments, one per state. A segment's filled part grows outward from the
+// centre with that state's share of the fleet, so the biggest group is the first thing the eye finds. Colours are the
+// dashboard's own state colours; the numbers and names sit on the segments so no separate legend is needed.
+const WHEEL_STATES = [
+  { state: "Excellent", fill: "#2f69ec", ink: "#ffffff" },
+  { state: "Good", fill: "#93b8fc", ink: "#0f2347" },
+  { state: "Fair", fill: "#f36b34", ink: "#2b1405" },
+  { state: "Poor", fill: "#aeb4bb", ink: "#1f2433" },
+];
+function polar(cx, cy, r, deg) {
+  const a = (deg * Math.PI) / 180;
+  return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+}
+function sector(cx, cy, r0, r1, a0, a1) {
+  const [x0, y0] = polar(cx, cy, r1, a0), [x1, y1] = polar(cx, cy, r1, a1);
+  const [x2, y2] = polar(cx, cy, r0, a1), [x3, y3] = polar(cx, cy, r0, a0);
+  return `M${x0} ${y0}A${r1} ${r1} 0 0 1 ${x1} ${y1}L${x2} ${y2}A${r0} ${r0} 0 0 0 ${x3} ${y3}Z`;
+}
+function StatusWheel({ counts, total }) {
+  const size = 280, c = size / 2, hole = 34, outer = 132, round = 7, gap = 5;
+  const summary = WHEEL_STATES.map((w) => `${counts[w.state] || 0} ${w.state.toLowerCase()}`).join(", ");
+  return (
+    <svg className="status-wheel" viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`Collector health: ${summary} of ${total}`}>
+      {WHEEL_STATES.map((w, i) => {
+        const n = counts[w.state] || 0;
+        const a0 = -90 + i * 90 + gap / 2, a1 = -90 + (i + 1) * 90 - gap / 2;
+        const reach = n ? hole + (outer - hole) * Math.max(n / Math.max(total, 1), 0.16) : 0;
+        const mid = (a0 + a1) / 2;
+        const [tx, ty] = polar(c, c, hole + (outer - hole) * 0.56, mid);
+        const covered = reach >= hole + (outer - hole) * 0.56;
+        const ink = covered ? w.ink : "#4b5563";
+        const shape = (r0, r1) => sector(c, c, r0 + round / 2, r1 - round / 2, a0 + 2.2, a1 - 2.2);
+        return (
+          <g key={w.state}>
+            <title>{`${w.state}: ${n} of ${total} collectors`}</title>
+            <path d={shape(hole, outer)} fill="#eceff3" stroke="#eceff3" strokeWidth={round} strokeLinejoin="round" />
+            {n > 0 && <path d={shape(hole, reach)} fill={w.fill} stroke={w.fill} strokeWidth={round} strokeLinejoin="round" />}
+            <text className="wheel-count" x={tx} y={ty - 2} textAnchor="middle" fill={ink}>{n}</text>
+            <text className="wheel-name" x={tx} y={ty + 15} textAnchor="middle" fill={ink}>{w.state}</text>
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
