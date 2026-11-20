@@ -1,49 +1,50 @@
-"""Validate every payload against the frozen contract, then store with dedup."""
-from __future__ import annotations
+import time,json
+from .store import dump,utc,epoch,count,state,audit
+from .aiops import canonical,detect
+from .health import metric_state,worse
+from .correlation import correlate
 
-import json
-import os
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+def refresh(db,config,now=None):
+    now=time.time() if now is None else now
+    for row in db.execute('SELECT * FROM fleet').fetchall():
+        age=max(0,now-row['last_seen']); target=row['report_state']; reason='Latest telemetry health'
+        signals=db.execute('SELECT state,ts FROM health_signals WHERE collector=?',(row['id'],)).fetchall()
+        recent=[s['state'] for s in signals if now-epoch(s['ts'])<config['offline_after_s']]
+        if signals: target=worse(*recent) if recent else 'Fair'; reason='Worst recent signal' if recent else 'Telemetry stale'
+        if age>=config['offline_after_s'] and row['reason']!='Collector heartbeat expired': db.execute('INSERT INTO offline_measurements(collector,delay,ts) VALUES(?,?,?)',(row['id'],age,utc(now)))
+        if age>=config['offline_after_s']: target,reason='Poor','Collector heartbeat expired'
+        elif age>=config['stale_after_s']: target,reason=worse(target,'Fair'),'Collector heartbeat stale'
+        state(db,row['id'],target,reason,now)
 
-from jsonschema import Draft202012Validator
+def touch(db,p,reported,now):
+    cid=p['collector_id']; ts=p['event_ts_utc']; row=db.execute('SELECT * FROM fleet WHERE id=?',(cid,)).fetchone()
+    if not row:
+        db.execute('INSERT INTO fleet(id,last_seen,version,state,report_state,reason,config_hash,resources,latest_event) VALUES(?,?,?,?,?,?,?,?,?)',(cid,now,p['collector_version'],reported,reported,'Initial telemetry',None,'{}',ts))
+        db.execute('INSERT INTO health_history(collector,state,reason,ts) VALUES(?,?,?,?)',(cid,reported,'Initial telemetry',utc(now)))
+    elif not row['latest_event'] or ts>=row['latest_event']:
+        db.execute('UPDATE fleet SET version=?,report_state=?,latest_event=? WHERE id=?',(p['collector_version'],reported,ts,cid))
 
-from .auth import CollectorCred
-from .store import Store
-
-_DEFAULT_CONTRACT = Path(__file__).resolve().parent.parent / "contracts" / "payload.schema.json"
-MAX_FUTURE_SKEW = timedelta(minutes=5)
-
-
-def load_validator() -> Draft202012Validator:
-    path = Path(os.getenv("CONTRACT_PATH", str(_DEFAULT_CONTRACT)))
-    return Draft202012Validator(json.loads(path.read_text(encoding="utf-8")))
-
-
-def process_batch(store: Store, validator: Draft202012Validator, cred: CollectorCred, payloads: list) -> dict:
-    accepted: list[str] = []
-    duplicate: list[str] = []
-    rejected: list[dict] = []
-    now = datetime.now(timezone.utc)
-
-    for p in payloads:
-        pid = p.get("payload_id") if isinstance(p, dict) else None
-        errors = sorted(validator.iter_errors(p), key=lambda e: list(e.path)) if isinstance(p, dict) else ["not an object"]
-        if errors:
-            first = errors[0]
-            reason = f"schema: {getattr(first, 'message', first)}"[:200]
-            rejected.append({"payload_id": pid, "reason": reason})
-            continue
-        # Identity comes from the credential. A payload claiming another tenant is rejected, not re-labelled.
-        if p["tenant_ref"] != cred.tenant_ref or p["collector_id"] != cred.collector_id:
-            rejected.append({"payload_id": pid, "reason": "tenant or collector does not match credential"})
-            continue
-        ts = datetime.fromisoformat(p["event_ts_utc"].replace("Z", "+00:00"))
-        if ts.tzinfo is None or ts.utcoffset() != timedelta(0) or ts - now > MAX_FUTURE_SKEW:
-            rejected.append({"payload_id": pid, "reason": "event_ts_utc must be UTC and not in the future"})
-            continue
-        (accepted if store.insert_payload(cred.tenant_ref, p) else duplicate).append(pid)
-
-    if accepted or duplicate:
-        store.touch_collector(cred.tenant_ref, cred.collector_id)
-    return {"accepted": accepted, "duplicate": duplicate, "rejected": rejected}
+def process(db,p,config,now=None):
+    now=time.time() if now is None else now; pid=p['payload_id']; metric=p.get('metric'); event=p.get('event')
+    name=canonical(metric['name']) if metric else None; signal=None; report=p['health_state']
+    inserted=db.execute('INSERT INTO payloads(id,collector,source,ts,received,data,metric,value) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,id) DO NOTHING RETURNING id',(pid,p['collector_id'],p['source_id'],p['event_ts_utc'],now,dump(p),name,metric['value'] if metric else None)).fetchone()
+    if not inserted:
+        existing=db.execute('SELECT data FROM payloads WHERE id=?',(pid,)).fetchone()
+        count(db,'duplicate_attempts'); return 'duplicate' if existing['data']==dump(p) else 'conflict'
+    if metric:
+        history=[r['value'] for r in db.execute('SELECT value FROM payloads WHERE collector=? AND source=? AND metric=? AND ts<? ORDER BY ts DESC LIMIT ?',(p['collector_id'],p['source_id'],name,p['event_ts_utc'],config['baseline_window']))]
+        report=worse(report,metric_state(metric,config)); signal=detect(metric,history,config)
+        if not signal and metric_state(metric,config)=='Poor': signal={'signal':name,'value':metric['value'],'why':f'{name} breached configured critical threshold','severity':'critical','method':'threshold fallback'}
+    elif event:
+        category=event['category'].lower(); failed=category in {'failed_login','auth_failure','authentication_failure','login_failure','failed_logins','auth_failed','auth_failure_burst'}
+        if failed or event['severity'] in {'critical','high','error'}:
+            signal={'signal':'failed_login' if failed else category,'value':event['count'],'why':f'{event["count"]} {category} event(s) in {p["window_s"]}s','severity':'critical' if event['severity'] in {'critical','high'} else 'warning','method':'local event summary'}
+            report=worse(report,'Poor' if signal['severity']=='critical' else 'Fair')
+    if signal: report=worse(report,'Poor' if signal['severity']=='critical' else 'Fair')
+    count(db,'accepted'); touch(db,p,report,now)
+    signal_key=name if metric else event['category']
+    db.execute('INSERT INTO health_signals(collector,source,signal,ts,state) VALUES(?,?,?,?,?) ON CONFLICT(tenant_id,collector,source,signal) DO UPDATE SET ts=excluded.ts,state=excluded.state WHERE excluded.ts>=health_signals.ts',(p['collector_id'],p['source_id'],signal_key,p['event_ts_utc'],report))
+    if signal:
+        correlate(db,p,signal,config,now)
+        db.execute('INSERT INTO alert_measurements(payload_id,delay) VALUES(?,?)',(pid,max(0,now-epoch(p['event_ts_utc']))))
+    return 'accepted'
