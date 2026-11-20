@@ -1,5 +1,5 @@
 import uuid
-from .store import dump,epoch
+from .store import dump,epoch,utc
 from .aiops import recommendation
 import json
 
@@ -11,7 +11,7 @@ def correlate(db,p,signal,config,now):
     if row: incident=json.loads(row['data'])
     else: incident={'id':str(uuid.uuid4()),'collector_id':p['collector_id'],'source_id':p['source_id'],'first_ts':ts,'last_ts':ts,'signals':[],'status':'open','severity':'warning','alert_count':0,'created_at_epoch':now}
     incident['first_ts']=min(incident['first_ts'],ts); incident['last_ts']=max(incident['last_ts'],ts)
-    signal={**signal,'payload_id':p['payload_id'],'event_ts_utc':ts,'alert_delay_s':max(0,now-t)}
+    signal={**signal,'payload_id':p['payload_id'],'event_ts_utc':ts,'alert_ts_utc':utc(now),'alert_delay_s':max(0,now-t)}
     incident['alert_count']+=1; incident['signals']=(incident['signals']+[signal])[-100:]; incident['signals'].sort(key=lambda s:s['event_ts_utc'])
     if signal['severity']=='critical': incident['severity']='critical'
     incident['recommendation']=recommendation(incident['signals'])

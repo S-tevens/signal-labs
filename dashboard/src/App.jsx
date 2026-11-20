@@ -39,7 +39,7 @@ import {
 import { LIVE, useLiveData } from "./api.js";
 import Analytics from "./Analytics.jsx";
 import DataFlow from "./DataFlow.jsx";
-import { ObjectExplorer, HealthHistory, IncidentWorkspace } from "./Platform.jsx";
+import { ObjectExplorer, HealthHistory, IncidentWorkspace, ReceivedPayload } from "./Platform.jsx";
 
 // Live data from the SaaS when a dashboard token is configured, labelled demo data otherwise.
 const DataContext = React.createContext(null);
@@ -47,11 +47,11 @@ const useData = () => React.useContext(DataContext);
 
 const pages = {
   fleet: [
-    "Fleet overview",
-    "A clear picture of your infrastructure. Without the raw data.",
+    "Overview",
+    "",
   ],
   flow: ["Data flow", "Trace the journey from local telemetry to operational insights."],
-  analytics: ["Analytics overview", "Understand your fleet, signals, and incidents at a glance."],
+  analytics: ["Analytics overview", "Understand your collectors, signals, and incidents at a glance."],
   incidents: [
     "Incidents",
     "Less noise. More context. Know what to investigate next.",
@@ -60,6 +60,7 @@ const pages = {
     "Performance proof",
     "Delivery evidence, measured against your hackathon targets.",
   ],
+  received: ["Received payload", "Inspect metadata stored for your tenant."],
   objects: ["Object explorer", "Explore linked metadata across your monitored environment."],
   history: ["Health history", "Review collector health changes and their recorded reasons."],
   egress: [
@@ -68,18 +69,19 @@ const pages = {
   ],
 };
 const nav = [
-  { id: "fleet", label: "Fleet overview", icon: Layers3 },
+  { id: "fleet", label: "Overview", icon: Layers3 },
   { id: "analytics", label: "Analytics", icon: BarChart3 },
   { id: "flow", label: "Data flow", icon: GitBranch },
   { id: "incidents", label: "Incidents", icon: Activity },
   { id: "proof", label: "Performance proof", icon: ShieldCheck },
+  { id: "received", label: "Received payload", icon: FileJson },
   { id: "objects", label: "Object explorer", icon: Database },
   { id: "history", label: "Health history", icon: Clock3 },
   { id: "egress", label: "Local egress", icon: FileJson },
 ];
 const regionName = { in: "India", eu: "Europe" };
 function currentPage() {
-  const page = location.hash.replace("#/", "");
+  const page = location.hash.replace("#/", "").split("?")[0];
   return pages[page] ? page : "fleet";
 }
 function Badge({ state }) {
@@ -258,7 +260,7 @@ function Fleet({ rows, onSelect, onIncident, range }) {
     <>
       <div className="fleet-hero-grid">
         <section className="panel fleet-status-hero" aria-label="Collector health summary">
-          <div className="hero-card-heading"><div><span className="card-kicker">YOUR INFRASTRUCTURE</span><h2>Fleet status</h2></div><span className="light-pill">{rows.length} collectors</span></div>
+          <div className="hero-card-heading"><div><span className="card-kicker">YOUR INFRASTRUCTURE</span><h2>Collector status</h2></div><span className="light-pill">{rows.length} collectors</span></div>
           <div className="orb-area"><div className="orb-glow" aria-hidden="true"><span className="orb-needle one"/><span className="orb-needle two"/><span className="orb-needle three"/><span className="orb-center"/></div></div>
           <div className="hero-total">{String(rows.length).padStart(2, "0")}</div>
           <p className="hero-caption">Monitored collectors in {rows.some(c => c.region === 'eu') && rows.some(c => c.region === 'in') ? 'all demo regions' : rows[0]?.region === 'eu' ? 'Europe' : 'India'} · {online} reporting</p>
@@ -424,7 +426,7 @@ function Fleet({ rows, onSelect, onIncident, range }) {
           </div>
         </section>
         <section className="panel health-summary">
-          <PanelTitle title="Fleet health">
+          <PanelTitle title="Collector health">
             <span className="small-tag">{rows.length} collectors</span>
           </PanelTitle>
           <div className="health-track">
@@ -465,7 +467,7 @@ function Fleet({ rows, onSelect, onIncident, range }) {
         </section>
       </div>
       <section className="panel fleet-panel">
-        <PanelTitle icon={Server} title="Collector fleet">
+        <PanelTitle icon={Server} title="Collectors">
           <span className="small-tag">
             {filtered.length} of {rows.length} collectors
           </span>
@@ -1104,11 +1106,7 @@ function Dashboard() {
         <main>
           <div className="page-heading">
             <div>
-              <div className="eyebrow">
-                {page === "egress"
-                  ? "LOCAL COLLECTOR · SYNTHETIC RECORDS"
-                  : "PRIVATE BY DESIGN. VISIBLE BY DEFAULT."}
-              </div>
+              {page === "egress" && <div className="eyebrow">LOCAL COLLECTOR · SYNTHETIC RECORDS</div>}
               <h1>
                 {pages[page][0]}
 
@@ -1199,6 +1197,7 @@ function Dashboard() {
             />
           )}
           {page === "proof" && <Proof />}
+          {page === "received" && <ReceivedPayload />}
           {page === "objects" && <ObjectExplorer />}
           {page === "history" && <HealthHistory />}
           {page === "egress" && <Egress notify={setToast} />}
@@ -1206,10 +1205,6 @@ function Dashboard() {
             <span>
               <Activity size={13} />
               Signal Labs <span>·</span> Built for CICADA 2026
-            </span>
-            <span>
-              <LockKeyhole size={12} />
-              Local-first. Metadata-only.
             </span>
           </footer>
         </main>
@@ -1235,7 +1230,7 @@ function Dashboard() {
             <IconBox icon={Sparkles} />
             <h2 id="guide-title">Your platform, at a glance.</h2>
             <p>
-              Start with fleet health, inspect an incident, check delivery
+              Start with collector health, inspect an incident, check delivery
               evidence, then explain the privacy boundary.
             </p>
             {nav.map((n) => (
@@ -1347,7 +1342,7 @@ function Detail({ detail, close }) {
             <div className="notice">
               <LockKeyhole size={17} />
               <span>
-                Raw logs are not available in the central fleet view. Inspect
+                Raw logs are not available in the central dashboard. Inspect
                 them inside the customer environment.
               </span>
             </div>
