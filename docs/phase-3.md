@@ -119,7 +119,7 @@ Priority: **P0** = a Phase 3 tick or a mandatory item; **P1** = strengthens Phas
 - [ ] Dashboard shows the four health states, their thresholds and stale-data handling (P16, P17)
 - [ ] Contextual anomaly alerts; outage detection, buffering and retry shown live (E14, P19)
 - [ ] Egress proof panel shows the exact payload before it leaves, and it matches what the SaaS received (E18, E19, P20)
-- [ ] Measured: dashboard ≤ 10 s (pass at `realtime`), alert ≤ 15 s (pass), zero loss and duplicates (pass), with evidence files; **offline ≤ 60 s still fails by 0.2 s until P17** (E14, E15, P17 to P19)
+- [ ] Measured: dashboard ≤ 10 s (pass at `realtime`), alert ≤ 15 s (pass), zero loss and duplicates (pass), with evidence files; offline ≤ 60 s now passes at 40.26 s with `offline_after_s: 40` (latest run, 2026-11-20 18:30 UTC) (E14, E15, P17 to P19)
 - [ ] Mandatory: real-time measured from timestamps; the shared organizer stream; the egress proof panel
 - [ ] One full rehearsal run recorded (E22)
 
