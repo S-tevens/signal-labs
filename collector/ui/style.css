@@ -61,3 +61,8 @@ details { margin-top: 8px; } summary { cursor: pointer; color: var(--muted); fon
 .strip { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 16px 12px; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; }
 .strip.held { border-color: #b45309; background: #fffbeb; font-weight: 600; }
 .strip-text { margin: 0; }
+.stages { margin: 0 16px 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; }
+.stages summary { cursor: pointer; font-weight: 600; }
+.checks-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.checks-list .good { color: var(--good); }
+.checks-list .bad { color: var(--bad); font-weight: 600; }

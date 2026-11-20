@@ -140,6 +140,11 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
     def local_pipeline():
         return {"counters": dict(pipeline.counters), "open_windows": pipeline.agg.open_windows(), "window_s": cfg.window_s}
 
+    @app.get("/local/stages")
+    def local_stages():
+        """Each pipeline stage's count since start, plus what the outbox holds now (it survives restarts)."""
+        return {**pipeline.stages(), "outbox_now": store.counts(), "since_start": True}
+
     @app.get("/local/timing")
     def local_timing():
         """The settings that decide how fast data moves. Recorded in every measurement's evidence file."""

@@ -90,17 +90,24 @@ Open `http://127.0.0.1:8101/local/ui` (collector, this machine only). Pick a pay
 - The digest is fixed when the payload is queued. If the stored body ever differs from it, that payload is not sent and is closed out as rejected, with the reason on the strip.
 - Hold and release answer only to this machine, only with a Host of `localhost`, `127.0.0.1` or `::1`, and only with an `X-Requested-With: local-ui` header that the page sends. Another site open in your browser cannot set that header without a preflight the collector never answers.
 
+The panel's **Pipeline stages** box (and `GET /local/stages`) shows each stage's count since the collector started and two checks that the counts add up: every received record ends as dropped, oversize or aggregated, and every closed window ends as queued, failed schema or blocked by policy. The full demo, in order, is in [../docs/p3/collector.md](../docs/p3/collector.md).
+
 ## Rehearsal
 
 ```
-.\scriptsehearse.ps1                    # 14 steps, about 8 minutes, 10 s between steps
-.\scriptsehearse.ps1 -Pause 20          # longer pauses so incidents separate
-.\scriptsehearse.ps1 -WithMeasure       # also the timing measurements (about 6 more minutes)
-.\scriptsehearse.ps1 -Only secret,hold  # just these steps
+.\scripts
+ehearse.ps1                    # 14 steps, about 8 minutes, 10 s between steps
+.\scripts
+ehearse.ps1 -Pause 20          # longer pauses so incidents separate
+.\scripts
+ehearse.ps1 -WithMeasure       # also the timing measurements (about 6 more minutes)
+.\scripts
+ehearse.ps1 -Only secret,hold  # just these steps
 .\scripts\open-demo.ps1                   # egress panel left, dashboard right
 ```
 
-Needs the stack running. A step is FAIL on a non-zero exit or a failure word in its output, PASS if it printed a verdict, and "ran" if it only shows you something to look at. The run writes `docs\p3\evidenceehearsal-<time>.md` with the table and every step's output, and exits 1 if anything failed.
+Needs the stack running. A step is FAIL on a non-zero exit or a failure word in its output, PASS if it printed a verdict, and "ran" if it only shows you something to look at. The run writes `docs\p3\evidence
+ehearsal-<time>.md` with the table and every step's output, and exits 1 if anything failed.
 
 ## Proving the privacy claim
 
