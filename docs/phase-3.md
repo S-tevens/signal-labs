@@ -1,0 +1,125 @@
+# Phase 3: Implementation and working prototype (35 marks): status and work split
+
+Status of `main` at `8126f6f`. **Verified** means Member 1 ran it live, or in the tests, on one Windows machine. **Built** means it exists but has not been checked by Member 1. **Estimate** means worked out from the settings in the code, not measured. Nothing here is a production claim.
+
+Same two people as before: **Member 1 (Edge)** owns the collector, the scripts and everything that runs, drives and measures the system; **Member 2 (Platform)** owns the SaaS and the dashboard. Member 2 is currently building the **data flow tab** (task P15 below). Put your names in section 4.
+
+## 1. What the judges will look for
+
+Phase 3 is the biggest block: 35 marks, **10 of them for real-time performance and delivery reliability**. The guide says everything is judged live, from the shared organizer stream, and that numbers must be **measured, not claimed**.
+
+Evidence the guide says judges will ask for:
+
+1. A live side-by-side: a raw log with a secret on the collector, and the redacted metadata on the SaaS dashboard.
+2. Timestamps proving the real-time targets, measured from the shared stream.
+3. A forced SaaS outage, then reconnection, with sent and received IDs compared.
+4. The egress proof panel's log for a specific payload.
+
+**Strong:** everything demonstrated live from the shared stream, the egress log matches what the SaaS received, reliability numbers measured. **Weak:** polished screens backed by hard-coded data, no proof of what leaves the collector, no behaviour under failure. Three items are mandatory for every team: real-time targets measured from timestamps, the same organizer stream, and an egress proof panel.
+
+## 2. The Phase 3 sheet against the repo
+
+| Sheet item | Status | Evidence | Gap |
+|---|---|---|---|
+| **Working collector on the organizer stream; raw data and secrets stay local** | Partial | The collector runs on the simulator and on real host telemetry; the egress panel and the `secret` scenario show raw staying local | **The organizer stream is not integrated** and its format is unknown. There is no canary-style proof that nothing raw reaches the platform, and nothing to show it on someone else's data |
+| **SaaS shows only allow-listed metadata, per tenant** | Mostly | Strict schema plus frozen-contract validation; row-level security tested on Postgres | A second tenant has never run live; no scan proving no raw value reached any platform table or API |
+| **Dashboard with four health states, thresholds, stale-data handling** | Built, partly checked | States and a "Telemetry stale" reason were seen live; Health history renders; thresholds live in `saas/config/thresholds.yaml` | Thresholds are not shown in the UI; stale handling not checked in a browser; the collector's heartbeat sends a constant config hash and **no resource usage**, though the guide asks the fleet view to show both |
+| **Contextual anomaly alerts; outage detection, buffering, retry** | Verified live | Explained incidents with lineage; an outage buffered 26 payloads and lost none; retry with backoff; replica kill lost none | **Offline detection time has never been measured**, and the default threshold cannot meet the target (section 3) |
+| **Egress proof panel shows the exact payload before it leaves** | Partial | `/local/ui` shows raw beside the exact payload with a leak check | Payloads leave within about a second, so a judge cannot catch one **before** it leaves; the panel cannot show that the SaaS received the same bytes |
+| **Real-time: dashboard ≤ 10 s, alert ≤ 15 s, offline ≤ 60 s, zero loss and duplicates** | Zero loss verified; timing **not measured** | Zero loss and zero duplicates by payload-ID set through an outage (12,610 judged) and through killing a replica (12,658 judged) | No clean measurement of any of the three timings; earlier figures were skewed by old windows and backdated test events and must not be quoted |
+
+## 3. Can the defaults even meet the timing targets?
+
+Worked out from the current settings (estimates, to be replaced by measurements from E14):
+
+| Target | What adds up at the defaults | Estimate | Risk |
+|---|---|---|---|
+| **Collection → dashboard ≤ 10 s (p95)** | a 5 s window, then a 2 s grace, then up to 1 s until the window flush runs and up to 1 s until the sender runs, ingest, then the platform's 2 s stream snapshot | about 3 to 6 s from the **newest** record in a window; **8 to 11 s from the earliest** record | The stricter reading of "event time to render" can exceed 10 s |
+| **Breach → alert ≤ 15 s** | the platform needs the anomaly in **2 consecutive windows**: the first window closes about 8 s after the spike starts, the second about 5 s later | about 10 to 14 s | Right at the limit, with no margin |
+| **Offline ≤ 60 s** | `offline_after_s` is exactly 60, checked once a second | the collector turns Poor 60 to 61 s after its last heartbeat | **Misses the target by design**; measured from the outage start it is about 55 to 61 s |
+| **Zero loss and duplicates** | idempotent IDs, durable outbox, failover proxy | measured: none missing, none duplicated | Low |
+
+A "real-time" profile would change the settings together: window 2 s, grace 1 s, flush every 0.5 s, send every 0.25 s, heartbeat 5 s, offline threshold 40 s, and a pushed dashboard update. By the same arithmetic that gives about 4 to 5 s collection to dashboard, about 6 s to an alert and about 40 s to Poor. The cost is roughly 2.5 times more payloads per collector (more rows and requests). The timing settings are shared between the two halves (section 5), so they are agreed together, then measured.
+
+## 4. Work split for two people
+
+Ownership is unchanged from `docs/phase-2.md`: Member 1 owns `collector/**`, `simulator/**`, `scripts/**` and `docs/p3/collector.md`; Member 2 owns `saas/**`, `dashboard/**`, `.github/**` and `docs/p3/platform.md`. New files wherever possible, branches `edge/<topic>` and `platform/<topic>`, merge at least every two hours.
+
+| | Member 1: Edge | Member 2: Platform |
+|---|---|---|
+| **Name** | _______ | _______ |
+
+Priority: **P0** = a Phase 3 tick or a mandatory item; **P1** = strengthens Phase 4 or a bonus; **P2** = if time remains.
+
+### Member 1: Edge (collector, measuring, proving, rehearsing)
+
+| ID | P | Task | Files | Done when |
+|---|---|---|---|---|
+| E14 | P0 | **Measurement harness.** One command measures the three timings and delivery from timestamps, on live traffic (never backdated): collection to dashboard (first sight of each payload by a dashboard-style client, reported as p50, p95 and p99, from the newest record **and** from the window start), breach to alert (inject a spike, time to the incident), offline detection (kill a collector, time to Poor), and sent vs received ID sets across a forced outage. Each result is PASS or FAIL against its target and the raw timestamps are saved as an evidence file | `simulator/measure.py`, `scripts/measure.ps1`, `docs/p3/evidence/` | One command prints a table of measured values against 10 s, 15 s and 60 s, plus the ID reconciliation, and writes the evidence file |
+| E15 | P0 | **Timing profile.** A `PROFILE=realtime` preset for the collector timing settings (section 3), measured against the defaults with E14, with the trade-off written down. Agree the platform-side numbers with Member 2 (P17, P19) | `collector/config.py`, `scripts/run-local.ps1` | Measured p95 collection to dashboard ≤ 10 s and alert ≤ 15 s with at least 3 s of margin, or the gap and its cause documented |
+| E16 | P0 | **Organizer-stream readiness.** Input adapters beyond `POST /ingest` (UDP syslog, TCP lines, follow a file), CSV and NDJSON parsers, and a mapping file (`collector/mapping.yaml`) for metric name aliases, unit conversions, timestamp formats and host field names, so a new stream format needs configuration, not code | `collector/adapters/`, `parsers/`, `mapping.yaml` | Five differently shaped sample streams all produce valid payloads; unknown fields are dropped; tests |
+| E17 | P0 | **Replay and scripted timeline.** Replay a recorded stream at real or faster speed with timestamps rebased to now, and run a scripted timeline that mimics the organizers' injections: steady, CPU spike, latency spike, failed-login burst, SaaS outage | `simulator/replay.py`, `simulator/timelines/` | A five-minute timeline replays identically every run and is what E14 and the rehearsal use |
+| E18 | P0 | **Hold and release in the egress panel.** A local-only Hold button stops sending so pending payloads sit in the outbox and the panel shows exactly what is about to leave; Release resumes. Add a buffer strip (link state, pending count, next retry, last error), a SHA-256 of each payload's exact bytes, and sent time per payload. Hold times out after 5 minutes so it cannot be forgotten | `collector/ui/`, `main.py`, `sender.py` | With Hold on, a record containing a secret appears as a pending payload with no secret in it; after Release the same ID and digest reach the SaaS |
+| E19 | P0 | **Proof tools: match and canary scan.** *Match:* compare the last N sent payloads field by field with the platform's stored observations and report any difference. *Canary scan:* plant unique canary strings in secret, email, IP, host and username positions, then search every platform API response and the platform's database tables for them, and confirm they exist in the collector's raw store | `simulator/verify.py`, `scripts/verify.ps1` | One command prints PASS or FAIL for "the egress log matches what the SaaS received" and for "no canary reached the platform" |
+| E20 | P1 | **Tenant isolation and allow-list demo.** Add a second tenant (`t-globex`) to the dev auth config; a scenario enrolls a collector for each tenant, shows each dashboard token sees only its own fleet, metrics and incidents, a payload naming the other tenant is refused, a cross-tenant object fetch returns 404, and deliberately bad payloads (extra field, secret-like summary, unknown metric, non-UTC time) are each rejected with a reason | `scripts/run-local.ps1`, `simulator/scenarios.py` | The scenario prints PASS for each isolation and allow-list check |
+| E21 | P1 | **Collector heartbeat that means something.** Send the collector process's own CPU and memory, its uptime and a real hash of its effective configuration (not the constant `dev`), so the fleet view can show resource usage and configuration status as the guide asks | `collector/sender.py` | The fleet shows non-empty resource usage and a config hash that changes when a setting changes |
+| E22 | P1 | **Rehearsal runner.** One script runs every scenario plus the measurements in the order a judge would see them, pauses between steps, and writes a pass/fail table with timestamps; a second script opens the collector panel and the dashboard side by side | `scripts/rehearse.ps1`, `scripts/open-demo.ps1` | A full run completes and leaves an evidence file for the rehearsal |
+| E23 | P1 | **Real-time collector health verdict.** Replace the constant "Good" with a local verdict (using the same thresholds as the platform) so the collector's own report agrees with the platform | `collector/pipeline.py` | A CPU spike changes the `health_state` the collector sends |
+| E24 | P2 | **Pipeline stage page** (carried over from E6): received, parsed by format, redacted by rule, dropped, aggregated, queued, sent | `collector/ui/`, `main.py` | Counts per stage add up and are visible live |
+| E25 | P0 | Docs: `docs/p3/collector.md` (demo order, expected output of each command, how each target is measured) and the evidence files; update the statuses in this file | `docs/p3/` | A teammate can run the whole Phase 3 demo from the document alone |
+
+### Member 2: Platform (dashboard, health, timing path, proof views)
+
+| ID | P | Task | Files | Done when |
+|---|---|---|---|---|
+| P15 | P0 | **Data flow tab** (in progress). Live view of collector → proxy → replicas → database with real counts and statuses, not fixtures | `dashboard/src/` | Every number on the tab comes from a live endpoint; killing a replica is visible |
+| P16 | P0 | **Health states in the dashboard.** The four states with their thresholds visible (read from the platform's configuration), a reason for each state, stale data shown as age and downgraded, state history | `dashboard/src/`, `saas/main.py` | A judge can see why a collector is Fair or Poor and what threshold caused it |
+| P17 | P0 | **Offline and stale thresholds.** Set `offline_after_s` below 60 (about 40) and a Fair threshold for staleness, matched to the heartbeat interval; test it | `saas/config/thresholds.yaml`, tests | Poor appears within 60 s of the last heartbeat with at least 10 s of margin, measured by E14 |
+| P18 | P0 | **Dashboard freshness path.** Push updates when data arrives instead of a fixed 2 s snapshot, keep render acknowledgements, show the measured p95 with sample count and window, and show "last updated" | `saas/main.py`, `dashboard/src/api.js` | Measured collection to dashboard p95 ≤ 10 s (with E14) |
+| P19 | P0 | **Alert timing.** Choose the persistence setting together with the collector window (E15) so an alert appears within 15 s with margin, and show raised-at against event time | `saas/ingest.py`, `thresholds.yaml` | Measured breach to alert ≤ 15 s with at least 3 s of margin |
+| P20 | P0 | **"What the SaaS received" view.** For a payload ID, show the stored fields exactly as the platform holds them (allow-listed, per tenant), reachable by link, so it can sit beside the collector's panel | `dashboard/src/` | A payload ID from the collector panel opens the matching stored record |
+| P21 | P1 | **Tenant isolation in the UI.** Show the tenant name, switch only by token, and show nothing from another tenant (uses E20's second tenant) | `dashboard/src/` | Two tokens show two disjoint fleets |
+| P22 | P1 | **Second region live and a scale figure** (carried over from P7 and P8): a second region running with its own database, and a recorded throughput number with its bottleneck named | `saas/`, `docs/p3/platform.md` | A region-bound tenant works in a second region; a figure is in the docs |
+| P23 | P1 | **Browser check of the earlier screens** (P9 to P12): incident workspace, action buttons, lineage, live updates; fix what is wrong | `dashboard/src/` | Each screen verified with live data |
+| P24 | P0 | Docs: `docs/p3/platform.md` with the platform's evidence and any thresholds changed | `docs/p3/` | Matches what runs |
+
+## 5. Seams (where the two halves meet)
+
+| Seam | Rule |
+|---|---|
+| **Timing settings** | Collector window, grace and intervals (E15) and platform persistence, offline and stream settings (P17, P18, P19) are one budget. Agree the numbers together, change them in one pull request each, and re-measure with E14 afterwards |
+| **Evidence tools read the platform's public API** | E14 and E19 use the existing endpoints (`/v1/fleet`, `/v1/metrics`, `/v1/incidents`, `/v1/proof`, `/v1/objects/...`). Member 2 tells Member 1 before changing any of their shapes |
+| **Test tenants and credentials** | Member 1 adds `t-globex` and its tokens to the dev auth config in `scripts/run-local.ps1`; Member 2 provides anything the platform needs for a second tenant |
+| **Payload contract** | Unchanged. A payload digest (E18) is computed over the existing bytes and adds no field |
+| **Organizer stream** | Member 1 owns the adapters and mapping (E16); Member 2 only needs to be told if new metric names appear |
+
+**Order of work.** Member 1 starts with E14, so everything can be measured, then E16 and E17 (so the collector is ready whatever the stream looks like), then E18 and E19. E15 comes after the first baseline measurement. Member 2 starts with P15 (already in progress) and P16, then P17 to P19 after E14's baseline, then P20. Then the P1 items. Freeze features with enough time left to rehearse (E22).
+
+## 6. Questions to ask the organizers now
+
+1. How is the stream delivered: a file, an HTTP feed, syslog, a message queue? Is it pushed to us or do we pull it?
+2. What does a record look like? Which field is the event timestamp, in what format and timezone?
+3. Which metric names and units appear (and does CPU arrive as a percentage or a fraction)?
+4. How many hosts or sources, and at what rate?
+5. How are bursts, latency spikes and outages injected, and can we see a recording to rehearse on?
+6. How will the real-time targets be measured: from which clock, and which timestamp counts as "event time"?
+7. How are the "raw log with a secret" and "repeated failed logins" scenarios represented in the stream?
+
+## 7. Done checklist for Phase 3 (tick from the running system)
+
+- [ ] Collector running on the organizer stream, with raw data and secrets staying local (E16, E17, E19)
+- [ ] Platform shows only allow-listed metadata, per tenant, with the proof (E19, E20, P20, P21)
+- [ ] Dashboard shows the four health states, their thresholds and stale-data handling (P16, P17)
+- [ ] Contextual anomaly alerts; outage detection, buffering and retry shown live (E14, P19)
+- [ ] Egress proof panel shows the exact payload before it leaves, and it matches what the SaaS received (E18, E19, P20)
+- [ ] Measured: dashboard ≤ 10 s, alert ≤ 15 s, offline ≤ 60 s, zero loss and duplicates, with evidence files (E14, E15, P17 to P19)
+- [ ] Mandatory: real-time measured from timestamps; the shared organizer stream; the egress proof panel
+- [ ] One full rehearsal run recorded (E22)
+
+## 8. Risks
+
+- **The organizer stream arrives late or in an unexpected shape.** Mitigation: adapters and a mapping file (E16), and rehearsing on a recorded timeline (E17).
+- **The targets are missed at the defaults.** Mitigation: section 3, and measuring early (E14) so there is time to tune.
+- **Tuning for speed costs volume.** A shorter window sends more payloads; the retention caps bound the disk, and the volume should be measured with E15.
+- **A polished screen with fixed data.** The dashboard's Egress screen is synthetic by design (raw records must never go through the central platform). Label it clearly and demonstrate the real collector panel, with the platform's "what was received" view (P20) beside it.
+- **Clock differences.** All measurements here run on one machine, so one clock. If the organizers measure across machines, agree on a time source first.
