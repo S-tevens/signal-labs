@@ -532,6 +532,9 @@ function Fleet({ rows, onSelect, onIncident, range }) {
                         <small>
                           {c.id} <span>· {regionName[c.region]}</span>
                         </small>
+                        <small title="The collector process's own load and a fingerprint of its settings">
+                          {resourceText(c.resources || {})} · config {c.configHash}
+                        </small>
                       </span>
                     </button>
                   </td>
@@ -558,8 +561,8 @@ function Fleet({ rows, onSelect, onIncident, range }) {
                     {c.latency == null ? "—" : `${c.latency} ms`}
                   </td>
                   <td>
-                    <span className={c.seen > 60 ? "text-red" : "muted"}>
-                      {c.seen}s ago
+                    <span className={presence(c).cls}>
+                      {presence(c).label} · {ago(c.seen)}
                     </span>
                   </td>
                   <td>
@@ -1332,7 +1335,7 @@ function Detail({ detail, close }) {
                   "Packet loss",
                   item.loss == null ? "Unavailable" : `${item.loss}%`,
                 ],
-                ["Last heartbeat", `${item.seen} seconds ago`],
+                ["Last heartbeat", ago(item.seen)],
                 ["Version", item.version],
                 ["Source", item.source],
                 ["Region", regionName[item.region]],
@@ -1393,6 +1396,23 @@ function Detail({ detail, close }) {
       </section>
     </div>
   );
+}
+
+// "17787 s" is unreadable: show "4 h ago". Stale and offline follow the platform's thresholds (30 s and 40 s).
+function ago(seconds) {
+  if (seconds < 90) return `${seconds} s ago`;
+  if (seconds < 5400) return `${Math.round(seconds / 60)} min ago`;
+  if (seconds < 172800) return `${Math.round(seconds / 3600)} h ago`;
+  return `${Math.round(seconds / 86400)} days ago`;
+}
+function presence(c) {
+  if (c.online === false) return { label: "Offline", cls: "text-red" };
+  if (c.seen > 30) return { label: "Stale", cls: "text-amber" };
+  return { label: "Live", cls: "muted" };
+}
+function resourceText(r) {
+  const parts = [["cpu", r.cpu_percent], ["mem", r.memory_percent], ["disk", r.disk_percent]].filter(([, v]) => v != null).map(([k, v]) => `${k} ${v}%`);
+  return parts.length ? parts.join(" · ") : "no resource report";
 }
 
 export default function App() {

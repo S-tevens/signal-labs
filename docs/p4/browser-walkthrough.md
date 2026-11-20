@@ -35,3 +35,16 @@
 - Production build (`dist`) or mobile layout; only the Vite dev server at desktop size.
 - Analytics, Performance proof and Local egress pages were not opened.
 - Baseline and threshold on a metric-based incident (the failed-logins incident has none recorded).
+
+## Fixes applied (2026-11-21)
+
+Checked again in the browser after the change; production build passes.
+
+| Issue | Fix | Result |
+|---|---|---|
+| 1. Fleet view hid the config hash and resources | The collector cell now shows the process CPU, memory and disk share and the config hash under its name (`dashboard/src/App.jsx`, `api.js`) | Shown: `cpu 0.17% · mem 0.67% · disk 67.5% · config cfg-d799...`; older collectors that never sent a report show "no resource report" and `config dev` |
+| 2. Invalid `pattern` regex console error | Hyphen escaped in both inputs (`Platform.jsx`) | The pattern is valid under the browser's `v` flag |
+| 3. Offline shown as "Poor" with raw seconds | Presence label (Live, Stale after 30 s, Offline) and readable ages ("5 h ago") | Shown: `Live · 3 s ago`, `Offline · 5 h ago`, `Offline · 34 min ago` |
+| 4. Latency p95 tile at 252 s; dev proxy missed the stack | The tile counted payloads that were already stored when the page opened as live renders, so their age became "latency". The first snapshot is no longer acknowledged and only payloads under 30 s old are. The dev proxy now reads `data/run.env.json` (address and private CA, certificate still verified) when `SAAS_PROXY_TARGET` is not set | After a reload, 0 acknowledgements in the first 7 s and 26 live ones in the next 30 s; `/api/healthz` reaches the TLS stack with no overrides |
+
+The tile's 5-minute window still holds earlier acknowledgements for up to five minutes, so it takes that long to show only fresh samples. Samples already stored in the database are not rewritten. Issues 5 to 7 above (health-history wording and pagination, old test collectors, loading state) are not changed.
