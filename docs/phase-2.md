@@ -1,12 +1,9 @@
 # Phase 2 — Architecture & Technical Design: status, Foundry-inspired design, and work split
 
-## Platform branch update
+Status of `main` after `platform/phase2` and `edge/retention-enrollment` were merged. **Verified** means Member 1 ran it live, or in the tests, on one Windows machine. **Built** means it exists but Member 1 did not check it. Nothing here is a production claim.
 
-On `platform/phase2`, Member 2 has added contract validation, tenant-scoped ontology and lineage, simulated actions with audit, one-time enrollment, two-window baseline persistence, a noise endpoint, region-bound databases, dashboard object/history/action views, authenticated SSE updates, and a recent proof window. Local integration tests cover two synthetic regions; the CI workflow provisions both. A small load smoke measurement and its limits are documented in [platform design](p2/saas.md).
+**Where things stand.** Every item on the Phase 2 sheet has a working implementation. From Member 1: TLS, real host telemetry, aggregation and local analysis, the data policy, the real egress panel, retention and limits, enrollment and the failover proxy. From Member 2: the ontology, lineage, simulated actions, contract enforcement, anomaly persistence and region-bound databases. The suite passes (137 tests, including the database tests) and GitHub Actions is green. What is missing is evidence, not features: no measured scale figure, no second region shown live, and the real-time targets have not been measured cleanly.
 
-The checklist below records the earlier assessment of `main` and is historical until this branch is merged. The edge branch has since merged local aggregation, policy and Windows local-run scripts into `main`; joint end-to-end validation is still needed. Full TLS, collector enrollment client, real egress panel, failover proxy, host telemetry, organizer-stream demo, team names and confirmed checkpoint times remain open. Regional databases alone do not prove geographic residency. The action system is simulated; the HMAC secret is stored in the tenant-scoped database and needs managed encryption and rotation for production. The original 100-signal retention limit applies to lineage.
-
-Status as of the last merge to `main`. "Verified" means we ran it; "design only" means it is described but not built.
 Two people share the work: **Member 1 (Edge)** owns everything inside the customer environment and the way the system is run and demonstrated; **Member 2 (Platform)** owns the central SaaS and everything the judges see on the dashboard. Put your names next to these in section 4.
 
 Judges tick only what is demonstrated live, and Phase 2 is 25 marks. Phases 3 and 4 (65 marks) reuse the same pipeline, so most work below pays twice.
@@ -15,35 +12,34 @@ Judges tick only what is demonstrated live, and Phase 2 is 25 marks. Phases 3 an
 
 ## 1. Phase 2 checklist against the repo
 
-| Evaluation-sheet item | Status | Evidence in the repo | Gap |
+| Evaluation-sheet item | Status | Evidence | Gap |
 |---|---|---|---|
-| **Two-tier, authenticated link** | Partial | Separate `collector/` and `saas/`; per-collector key plus HMAC over exact bytes; identity taken from the credential, never the body | **No TLS**: plain HTTP, and the load balancer went out with Docker |
-| **Collect → filter/redact → aggregate → analyse → policy → send** | Partial | Any-format parsers, redaction, strict allow-list schema, outbox and signed send are built | **No aggregation and no local analysis**: every record becomes one payload (`window_s=1`), so failed logins are not counted into a burst |
-| **Allow-listing, secret scrubbing, pseudonymous IDs** | Done | `collector/schema.py` (extra fields forbidden), `redact.py`, HMAC `src_…` IDs; tests prove secrets never reach the outbox | Policy is code, not data (see E2) |
-| **Auth, TLS, audit** | Partial | Auth done. Local egress log and a SaaS `audit` table exist | **TLS missing.** Retention (`purge_raw`) exists but never runs. Audit is not tamper-evident |
-| **Telemetry: CPU, memory, disk, bandwidth, latency, packet loss** | Partial | All six are in the schema and SaaS thresholds | Collection is simulated only, and only CPU, memory and latency. **Nothing reads a real host**; disk, bandwidth and packet loss are never produced |
-| **AIOps beyond static thresholds** | Done (not DB-tested) | Rolling median/MAD baseline, 120 s correlation window, incidents with a recommendation and "why" (`saas/aiops.py`, `correlation.py`) | No persistence rule yet, so false alarms are likely; DB integration tests are skipped here |
-| **Scales to many collectors and tenants** | Partial | Stateless replicas, one Postgres with row-level security, per-tenant isolation | Per-tenant advisory lock limits one big tenant; **no load test, no queue** |
-| **Regional ingest and residency** | Design only | Credential carries a region and a wrong-region request is refused (403) | One region live. No second region or separate store demonstrated |
-| **UTC, out-of-order, idempotent** | Done (not DB-tested) | UTC enforced, events ordered by event time, payload IDs deduplicated, same ID with a different body is a conflict | B's DB tests have never run here |
+| **Two-tier, authenticated link** | Done (verified live) | Separate `collector/` and `saas/`; key plus HMAC over the exact body; HTTPS with TLS 1.2+, server certificate and name verified against a pinned CA, behind the failover proxy. `demo.ps1 tls` shows plain HTTP refused, a different CA rejected and a tampered body returning 401 | Private dev CA only; no client certificates (mTLS) |
+| **Collect → filter/redact → aggregate → analyse → policy → send** | Done (verified) | Any-format parsers, 5-second windows, local failed-login bursts, the `policy.yaml` gate, strict schema, outbox; counters at `/local/pipeline` | No stage-by-stage page yet (E6); the collector's own health verdict is a constant |
+| **Allow-listing, secret scrubbing, pseudonymous IDs** | Done (verified) | Schema plus `policy.yaml`; secrets never reach the outbox (tests, the `secret` scenario, a browser check of the egress panel) | Scrubbing is pattern-based; free text has no field to travel in, so a missed secret still cannot leave |
+| **Auth, TLS, audit** | Done (verified) | Key plus HMAC; TLS; one-time-token enrollment end to end; every payload kept in the local outbox with its raw record IDs (`/local/lineage/<id>`); a platform audit table | Audit is not tamper-evident; the credentials file is protected by the operating system only |
+| **Telemetry: CPU, memory, disk, bandwidth, latency, packet loss** | Done (verified) | Real readings from this machine with the simulator off: CPU, memory, disk, bandwidth, plus probe latency, loss and reachability | "Loss" is failed TCP connects, not ICMP (ICMP was blocked on this machine) |
+| **AIOps beyond static thresholds** | Done (verified live) | Rolling median/MAD baseline, two-window persistence, 120-second correlation, explanations and lineage; 200 alerts became 14 incidents (`/v1/noise`) | False-alarm rate on a normal stream is not measured; confidence is a heuristic |
+| **Scales to many collectors and tenants** | Built, not measured | Stateless replicas, row-level security and tenant isolation tested on Postgres (the database tests run and pass); a load tool exists | Only a 20-payload smoke probe is recorded, so there is no throughput figure; the per-tenant advisory lock is a known limit; no queue |
+| **Regional ingest and residency** | Built and tested, not shown live | A credential is bound to a region and a wrong region is refused; each region has its own database with a binding check; two-region tests pass and CI provisions both | One region runs live; geographic residency is a design answer, not something the prototype proves |
+| **UTC, out-of-order, idempotent** | Done (verified live) | UTC enforced; events ordered by event time; duplicates stored once; same ID with a different body is a conflict (`delivery` scenario); zero loss by payload-ID set through an outage and through killing a replica | None known |
 
-Evidence judges will ask for: an **architecture diagram with every hop labeled** (missing), the payload schema and allow-list mechanism (exists), behaviour when SaaS is unreachable (verified), and the tenant-isolation approach (row-level security, DB tests unrun).
+Evidence judges will ask for: an **architecture diagram with every hop labeled** (`docs/p2/trust-boundary.svg`, and a flow chart in `docs/p2/architecture.md`); the payload schema and allow-list (`contracts/payload.schema.json`, `collector/policy.yaml`); behaviour when the platform is unreachable (verified live: buffered, then zero missing by ID set); and the tenant-isolation approach (row-level security, database tests pass).
 
-Drift risk: the SaaS validates with its own `saas/schema.py`, and `contracts/payload.schema.json` is no longer read by the SaaS. Only the one-way compat test in `collector/tests/test_saas_compat.py` guards the seam (task P4).
+The collector/platform seam has tests in both directions: `collector/tests/test_saas_compat.py` and `saas/tests/test_contract_compat.py`. The platform validates every payload against `contracts/payload.schema.json`.
 
 ---
 
-## 2. What is still open in Phase 1
+## 2. What is still open from Phase 1
 
-- [ ] `docs/p1/security-and-data-protection.md` (Member 1) and `docs/p1/story-and-plan.md` (Member 2) do not exist; only the SaaS document is there.
-- [ ] Member names are blank in `docs/phase-1.md` and the README.
-- [ ] Q1 and Q2 are generic. They must be rewritten in the team's own words, because judges ask the team directly.
-- [ ] The trust-boundary sketch is ASCII in a markdown file; export it as a one-page visual.
-- [ ] `docs/p1/saas-and-aiops.md` still mentions the Dockerfile, load balancer on 8080 and Postgres on 5432.
-- [ ] `starter.md` and `docs/phase-1.md` still describe Docker packaging.
+- [x] `docs/p1/security-and-data-protection.md`, `docs/p1/story-and-plan.md` and `docs/p1/saas-and-aiops.md` all exist.
+- [x] The trust-boundary sketch is now a visual: `docs/p2/trust-boundary.svg`.
+- [x] The plan documents no longer describe Docker packaging (the README says "no Docker" on purpose).
+- [ ] Member names are still blank in `docs/phase-1.md` and in section 4 below, and the README team line is generic.
+- [ ] Q1 and Q2 are in `docs/p1/story-and-plan.md`; the team should read them and confirm they are in its own words, because judges ask the team directly.
 - [ ] `docs/phase1.md` and `docs/phase-1.md` have near-identical names; merge or rename.
-- [ ] Confirm the organizers' real checkpoint times, since the 24-hour timeline is ours.
-- Done since Phase 1: a running MVP pipeline exists, so the "feasible in 24 hours" claim is demonstrable.
+- [ ] Confirm the organizers' real checkpoint times, since the 24-hour timeline is ours, and the organizer stream format is still unknown.
+- Done since Phase 1: a running pipeline exists, so the "feasible in 24 hours" claim is demonstrable.
 
 ---
 
@@ -60,7 +56,9 @@ These are concepts borrowed from Palantir Foundry's approach, not its branding o
 | **Pipeline view and health** | A stage-by-stage view of the collector pipeline with counts (received, parsed, redacted, dropped, aggregated, queued, sent) | Makes the Phase 2 data flow visible live |
 | **Workshop-style operational apps** | Object-centric screens: open an incident and see its collector, source, evidence, recommendation and actions in one place, with links | Judges see a story, not a table |
 
-### Proposed API (Member 2 builds both the endpoints and the screens that use them; freeze the shapes in `contracts/api.md` before Member 1 depends on any of them)
+**Status.** The ontology, lineage, simulated actions (audited, with a rollback plan), markings (`policy.yaml`, shown in the egress panel) and the Object explorer and Health history screens are built, and the platform APIs were verified live. The collector's pipeline view is counters only. The dashboard's incident workspace, action buttons and lineage screen were built by Member 2 and have not been checked by Member 1.
+
+### API (built by Member 2; shapes in `contracts/api.md`)
 
 | Endpoint | Returns |
 |---|---|
@@ -71,7 +69,7 @@ These are concepts borrowed from Palantir Foundry's approach, not its branding o
 | `GET /v1/actions`, `POST /v1/actions/propose`, `/{id}/approve`, `/{id}/reject`, `/{id}/rollback` | action lifecycle with audit trail |
 | `GET /v1/noise` | raw alerts vs. incidents (noise-reduction ratio) |
 
-Collector-local (Member 1 builds): `GET /local/policy`, `GET /local/pipeline`, `GET /local/lineage/{payload_id}`.
+Collector-local (built, and answering this machine only, 403 otherwise): `/local/policy`, `/local/pipeline`, `/local/lineage/{payload_id}`, `/local/ui`, `/local/host`, `/local/retention`, `/local/identity`.
 The local half of lineage (raw record, redactions) stays on the collector and is never served by the SaaS.
 
 ---
@@ -134,6 +132,38 @@ Priority: **P0** = a Phase 2 or Phase 3 tick or a mandatory item; **P1** = stren
 
 Member 1 has 13 tasks (7 P0); Member 2 has 14 (8 P0), but P9 to P11 are screens on APIs Member 2 also builds, so they have no waiting time. If Member 2 falls behind, hand P8, P12 and P13 to Member 1; if Member 1 falls behind, hand E9 and E6 to Member 2.
 
+### Task status
+
+| ID | Status | Notes |
+|---|---|---|
+| E1 | Done (verified) | 40 failed-login lines become one event with `count=40`; no per-line events |
+| E2 | Done (verified) | `policy.yaml` enforced, fails closed, served at `/local/policy` |
+| E3 | Done (verified live) | TLS with a verified, pinned CA; `REQUIRE_TLS` refuses plain HTTP |
+| E4 | Done (verified live) | Real host readings with the simulator off |
+| E5 | Done (verified in a browser) | Raw beside exact payload, with a leak check; an injected `<script>` stayed inert |
+| E6 | Partial | Counters at `/local/pipeline`; no stage page |
+| E7 | Done (verified live) | A 40,000-line flood left 500 raw rows, 201 pending payloads and 0.3 MiB; every drop counted and reported |
+| E8 | Done (verified live) | A collector with no keys enrolled itself; the token is single-use |
+| E9 | Done | Served as `/local/lineage/<id>` and used by the egress panel |
+| E10 | Done | 14 scenarios, each stating its expected result |
+| E11 | Done | `scripts/run-local.ps1` and `stop-local.ps1` |
+| E12 | Done (verified live) | Killing replica 1 mid-stream: 0 payloads missing, 0 duplicates stored |
+| E13 | Done | Collector docs and the trust-boundary diagram |
+| P1 | Done (verified) | Ontology and object endpoints; an incident resolves to its collector, source, evidence, recommendation and action |
+| P2 | Done (verified live) | Policy refusal, propose, approve, roll back, audit trail, blocked invalid transition; simulation only |
+| P3 | Done (verified live) | Token creation (admin role) and enrollment endpoint, used by the `enroll` scenario |
+| P4 | Done (verified) | Platform validates against the frozen contract and accepts everything the collector produces |
+| P5 | Done (verified) | Lineage endpoints for incidents and payloads |
+| P6 | Mostly done | Two-window persistence and `/v1/noise` verified; false-alarm rate on a normal stream not measured |
+| P7 | Built and tested | Region-bound databases and two-region tests; not shown live |
+| P8 | Partial | Tool exists; only a 20-payload smoke probe is recorded, no capacity figure |
+| P9 | Partly checked | Object explorer renders live data; the incident workspace was not checked |
+| P10 | Built, not checked in a browser | The action lifecycle was verified through the API |
+| P11 | Partly checked | Health history renders live data; the lineage screen was not checked |
+| P12 | Built, not checked | Live updates and a five-minute proof window exist in the dashboard code |
+| P13 | Done | CI is green with a Postgres service; the TLS tests skip there because CI does not install `cryptography` |
+| P14 | Done | Docs exist; this update corrects the statements that had gone stale |
+
 ---
 
 ## 5. The four seams (where the two halves meet)
@@ -149,11 +179,20 @@ Order of work: Member 1 starts with E1, E2, E10, E11; Member 2 starts with P4, P
 
 ## 6. Done checklist for Phase 2 (tick from the running system)
 
-- [ ] Two tiers over TLS with authenticated collectors (E3)
-- [ ] Pipeline visible stage by stage, including aggregate and local analysis (E1, E6)
-- [ ] Allow-list and markings shown from a policy file (E2, E5)
-- [ ] All six telemetry types collected from a real host (E4)
-- [ ] An anomaly beyond a static threshold, with its explanation and lineage (P1, P5, P11)
-- [ ] Multi-tenant and multi-region isolation demonstrated (P7)
-- [ ] UTC, out-of-order and duplicate delivery shown live (E10)
-- [ ] Architecture diagram with every hop labeled (P14)
+- [x] Two tiers over TLS with authenticated collectors (E3)
+- [ ] Pipeline visible stage by stage, including aggregate and local analysis: the stages run and the counters are served at `/local/pipeline`, but there is no stage page (E6)
+- [x] Allow-list and markings shown from a policy file (E2, E5)
+- [x] All six telemetry types collected from a real host (E4)
+- [x] An anomaly beyond a static threshold, with its explanation and lineage: verified through the API (P1, P5); the dashboard's lineage screen was not checked (P11)
+- [ ] Multi-tenant and multi-region isolation demonstrated: tenant isolation is tested on Postgres, and the second region is tested but not shown live (P7)
+- [x] UTC, out-of-order and duplicate delivery shown live (E10)
+- [x] Architecture diagram with every hop labeled (`docs/p2/trust-boundary.svg`)
+
+## 7. Open items that affect later phases
+
+- **Real-time targets are not cleanly measured.** The sheet asks for dashboard ≤ 10 s (p95), alert ≤ 15 s and offline detection ≤ 60 s, measured from timestamps. Figures seen so far (13.8 s dashboard p95, 16.8 s alert delay) were skewed by an old measurement window and by test events timestamped in the past, so they should not be quoted. Take a fresh measurement on a steady live stream.
+- **No scale figure.** Run the load tool and record a throughput number with its bottleneck named (P8).
+- **Organizer stream not integrated.** Its format is unknown; a new collector parser is a small change once it is published.
+- **Rehearsal.** Run all 14 scenarios together against the organizer stream before the final.
+- **CI skips the TLS tests** until `cryptography` is installed there.
+- **Dashboard screens P9 to P12** need a check in a browser.
