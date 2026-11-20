@@ -92,6 +92,8 @@ function mapCollectors(fleet, metricsByName, sessionRegion) {
       seen: Math.max(0, Math.round((Date.now() - Date.parse(f.last_seen_utc)) / 1000)),
       version: f.version || "—",
       reason: f.reason || "",
+      configHash: f.config_hash || "—",
+      resources: f.resources || {},
     };
   });
 }
@@ -149,6 +151,9 @@ async function snapshot(signal) {
   const regionOf = (id) => collectors.find((c) => c.id === id)?.region || session.region;
   const newest = names
     .flatMap((n) => metricsByName[n])
+    // Only live arrivals count as renders. Acknowledging old payloads (a quiet system, or a page opened hours later)
+    // would report their age as dashboard latency and make the p95 tile meaningless.
+    .filter((m) => Date.now() - Date.parse(m.event_ts_utc) < 30000)
     .sort((a, b) => (a.received_ts_utc < b.received_ts_utc ? 1 : -1))
     .slice(0, 5)
     .map((m) => m.payload_id);
@@ -170,6 +175,7 @@ async function snapshot(signal) {
 export function useLiveData() {
   const [state, setState] = useState({ status: LIVE ? "loading" : "demo", data: null, error: null, updatedAt: null });
   const acked = useRef(new Set());
+  const seeded = useRef(false);
 
   const load = useCallback(async (signal) => {
     try {
@@ -188,6 +194,13 @@ export function useLiveData() {
     if (!LIVE || !state.data) return undefined;
     let second;
     const first=requestAnimationFrame(() => { second=requestAnimationFrame(() => {
+      if (!seeded.current) {
+        // The first snapshot is whatever was already stored when the page opened, not a live arrival: remember it
+        // without acknowledging, so opening the page late cannot inflate the dashboard latency.
+        seeded.current = true;
+        for (const id of state.data.newest) acked.current.add(id);
+        return;
+      }
       for (const id of state.data.newest) {
         if (acked.current.has(id)) continue;
         acked.current.add(id);
