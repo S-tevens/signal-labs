@@ -143,7 +143,14 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
     @app.get("/local/stages")
     def local_stages():
         """Each pipeline stage's count since start, plus what the outbox holds now (it survives restarts)."""
-        return {**pipeline.stages(), "outbox_now": store.counts(), "since_start": True}
+        adapters = getattr(app.state, "adapters", None)
+        return {**pipeline.stages(), "outbox_now": store.counts(), "since_start": True, "inputs": adapters.status() if adapters else {}}
+
+    @app.get("/local/stream")
+    def local_stream():
+        """Where data comes in from and the state of any stream the collector pulls (connection, lines, last error)."""
+        adapters = getattr(app.state, "adapters", None)
+        return {"post_ingest": True, **(adapters.status() if adapters else {"listening": {}, "following": [], "pulling": []})}
 
     @app.get("/local/timing")
     def local_timing():

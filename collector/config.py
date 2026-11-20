@@ -108,4 +108,11 @@ class Config:
     tcp_lines_port: int = field(default_factory=lambda: int(os.getenv("TCP_LINES_PORT", "0")))
     follow_files: str = field(default_factory=lambda: os.getenv("FOLLOW_FILES", ""))  # comma-separated paths
     follow_from_start: bool = field(default_factory=lambda: os.getenv("FOLLOW_FROM_START", "0") == "1")
+    # Pull inputs: connect OUT to a stream (see collector/pull.py). The auth value is a secret: never logged or shown.
+    stream_url: str = field(default_factory=lambda: os.getenv("STREAM_URL", ""))
+    stream_poll_s: float = field(default_factory=lambda: float(os.getenv("STREAM_POLL_S", "0")))
+    stream_tcp: str = field(default_factory=lambda: os.getenv("STREAM_TCP", ""))
+    stream_ws: str = field(default_factory=lambda: os.getenv("STREAM_WS", ""))
+    stream_auth: str = field(default_factory=lambda: os.getenv("STREAM_AUTH", ""))
+    stream_ca_file: str = field(default_factory=lambda: os.getenv("STREAM_CA_FILE", ""))
     max_ingest_bytes: int = field(default_factory=lambda: int(os.getenv("MAX_INGEST_BYTES", str(8 << 20))))  # one request, 8 MiB

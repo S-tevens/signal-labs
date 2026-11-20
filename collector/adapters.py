@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .config import Config
 from .pipeline import Pipeline
+from .pull import PullAdapters
 
 log = logging.getLogger("collector.adapters")
 
@@ -38,6 +39,7 @@ class Adapters:
         self._servers: list = []
         self._tasks: list[asyncio.Task] = []
         self.ports: dict[str, int] = {}
+        self.pull = PullAdapters(cfg, pipeline)
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
@@ -52,10 +54,16 @@ class Adapters:
             self.ports["tcp"] = server.sockets[0].getsockname()[1]
         for path in [p.strip() for p in c.follow_files.split(",") if p.strip()]:
             self._tasks.append(asyncio.create_task(self._follow(Path(path))))
+        await self.pull.start()
         if self.ports or self._tasks:
             log.info("input adapters: %s, following %d file(s)", self.ports, len(self._tasks))
 
+    def status(self) -> dict:
+        """Where data comes in from, for the egress panel: listeners, followed files and pulled streams."""
+        return {"listening": self.ports, "following": [p.strip() for p in self.cfg.follow_files.split(",") if p.strip()], "pulling": self.pull.status()}
+
     async def stop(self) -> None:
+        await self.pull.stop()
         for t in self._tasks:
             t.cancel()
         for t in self._transports:
