@@ -102,4 +102,10 @@ class Config:
     outbox_max_pending: int = field(default_factory=lambda: int(os.getenv("OUTBOX_MAX_PENDING", "100000")))
     max_db_bytes: int = field(default_factory=lambda: int(os.getenv("MAX_DB_BYTES", str(1 << 30))))  # live data, 1 GiB
     max_line_chars: int = field(default_factory=lambda: int(os.getenv("MAX_LINE_CHARS", "65536")))
+    # Input adapters (E16). Off by default. They are unauthenticated, so they bind to this machine unless told otherwise.
+    adapter_bind: str = field(default_factory=lambda: os.getenv("ADAPTER_BIND", "127.0.0.1"))
+    udp_syslog_port: int = field(default_factory=lambda: int(os.getenv("UDP_SYSLOG_PORT", "0")))  # 0 = off
+    tcp_lines_port: int = field(default_factory=lambda: int(os.getenv("TCP_LINES_PORT", "0")))
+    follow_files: str = field(default_factory=lambda: os.getenv("FOLLOW_FILES", ""))  # comma-separated paths
+    follow_from_start: bool = field(default_factory=lambda: os.getenv("FOLLOW_FROM_START", "0") == "1")
     max_ingest_bytes: int = field(default_factory=lambda: int(os.getenv("MAX_INGEST_BYTES", str(8 << 20))))  # one request, 8 MiB

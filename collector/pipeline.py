@@ -16,7 +16,8 @@ from .aggregate import Aggregator, Window
 from .config import COLLECTOR_VERSION, Config
 from .local_analysis import SUMMARY, classify_auth, is_auth_failure
 from .outbox import LocalStore
-from .parsers import parse_line
+from . import mapping
+from .parsers import parse_line, parse_records
 from .policy import Policy
 from .redact import pseudonym, redact
 from .schema import METRIC_NAMES, METRIC_UNITS, Payload
@@ -57,7 +58,29 @@ class Pipeline:
             marker = f"{line[:512]} ...[line of {len(line)} characters dropped: over the {self.cfg.max_line_chars} limit]"
             raw_id = self.store.add_raw(marker, [])
             return {"status": "dropped_oversize", "raw_id": raw_id}
-        return self.process_record(parse_line(line), line)
+        return self._process_parsed(line, parse_records(line))
+
+    def process_text(self, text: str, state: dict | None = None) -> list[dict]:
+        """Many lines from one source. A CSV header line sets the column names for the lines after it (kept in `state`)."""
+        state = state if state is not None else {}
+        results = []
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if len(line) <= self.cfg.max_line_chars and not line.startswith("{") and mapping.get().looks_like_header(line):
+                state["csv_header"] = [c.strip().strip('"') for c in line.split(",")]
+                results.append({"status": "csv_header"})
+                continue
+            if len(line) > self.cfg.max_line_chars:
+                results.append(self.process(line))
+            else:
+                results.append(self._process_parsed(line, parse_records(line, state.get("csv_header"))))
+        return results
+
+    def _process_parsed(self, line: str, records: list[dict]) -> dict:
+        results = [self.process_record(r, line) for r in records]
+        return results[0] if len(results) == 1 else {**results[0], "records": len(results)}
 
     def process_record(self, record: dict, line: str) -> dict:
         """A normalized record (from a parser or a source such as host telemetry). `line` is the local raw text."""
