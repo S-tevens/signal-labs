@@ -5,32 +5,36 @@ Change process: propose in chat, collector owner edits, SaaS owner approves, mer
 
 Status column: **live** = implemented in the scaffold, **planned** = contract only.
 
-## SaaS (one load-balanced URL, `http://localhost:8080` in compose)
+## SaaS (replicas share one Postgres; `http://localhost:8000` and `:8001` locally)
 
-### Collector auth (all `/v1/ingest`, `/v1/heartbeat` calls)
-- `X-Collector-Key`: identifies the collector. The SaaS maps it to a tenant and collector id; **the tenant is never taken from the body**.
-- `X-Signature`: lowercase hex HMAC-SHA256 of the **raw request body** using the collector's secret.
-- Dev compose uses plain HTTP behind the load balancer. Production terminates TLS at the load balancer (mTLS recommended).
+The live SaaS is `saas/` (see `saas/README.md`); this section records the agreed shapes.
 
-### Dashboard auth (all `GET /v1/*`)
-- `X-Dashboard-Token`: maps to one tenant. Every query is scoped to that tenant.
+### Collector auth (`/v1/ingest`, `/v1/heartbeat`)
+- `X-Collector-Key`: identifies the collector. The SaaS maps it to a tenant, region and collector id; **identity is never taken from the body**, and a payload whose `tenant_ref`, `collector_id` or `region` does not match the credential is refused (403).
+- `X-Signature`: lowercase hex HMAC-SHA256 of the **exact request bytes** (optional `sha256=` prefix).
+- Body is one payload or a **JSON array of 1-500 payloads**, up to 1 MiB. `Content-Encoding: gzip` is accepted; the HMAC covers the transmitted bytes.
+- Local dev uses plain HTTP and talks to one replica directly. Production terminates TLS at a load balancer in front of the replicas (mTLS recommended).
 
-| Method and path | Status | Caller | Purpose |
-|---|---|---|---|
-| `GET /healthz` | live | load balancer | liveness and replica id |
-| `POST /v1/ingest` | live | collector | body `{"payloads":[Payload,...]}`; response `{"accepted":[id],"duplicate":[id],"rejected":[{"payload_id":id,"reason":str}]}` |
-| `POST /v1/heartbeat` | live | collector | body `{"collector_id","version","ts_utc","config_hash","buffer_depth"}` |
-| `GET /v1/fleet` | live | dashboard | collectors with `state`, `state_reason`, `last_seen_utc`, `version`, `buffer_depth` |
-| `GET /v1/metrics?source=&name=&from=&to=` | live | dashboard | time series ordered by event time |
-| `GET /v1/incidents` | planned | dashboard | correlated incidents with recommendations and explanation |
-| `GET /v1/health/history` | planned | dashboard | UTC-timestamped state transitions with reasons |
-| `GET /v1/proof` | planned | dashboard | p95 latency, alert delay, offline-detection time, sent vs. received counts |
-| `POST /v1/remediation/{id}/approve` | planned | dashboard | simulated approval step |
-| `GET /v1/stream` | planned | dashboard | server-sent events |
+### Dashboard auth (all `GET /v1/*`, `/v1/stream`)
+- `Authorization: Bearer <dashboard-token>`, bound to one tenant and a role (`viewer` reads, `operator` may approve the simulated remediation).
 
-Idempotency: `(tenant, payload_id)` is a primary key. Re-sending the same payload to any replica returns it under `duplicate`.
+| Method and path | Purpose |
+|---|---|
+| `GET /healthz` | readiness: `{status, region, replica_id}`; checks the database |
+| `POST /v1/ingest` | response `{"accepted":[id],"duplicate":[id],"conflict":[id]}`; the same ID with a different body is a `conflict` |
+| `POST /v1/heartbeat` | body `{collector_id, collector_version, config_hash, resource_usage}`; response `{accepted, server_ts_utc}` |
+| `GET /v1/fleet` | collectors with state, reasons, last seen, version, resources |
+| `GET /v1/metrics?source=&name=&from=&to=` | allow-listed payloads ordered by event time |
+| `GET /v1/incidents` | correlated incidents with signals, confidence and recommendation |
+| `GET /v1/health/history` | UTC-timestamped state transitions with reasons |
+| `GET /v1/proof` | measured latency, alert and offline delays, unique received IDs and counts |
+| `POST /v1/proof/render?payload_id=` | UI acknowledgement so real render latency can be measured |
+| `POST /v1/remediation/{id}/approve` | simulated approval with rollback record (operator only) |
+| `GET /v1/stream` | server-sent events, a snapshot every 2 seconds |
+
+Idempotency: a payload ID is unique per tenant; re-sending it to any replica returns it under `duplicate`.
 Ordering: events are stored and queried by `event_ts_utc`, never by arrival time.
-Staleness: a collector with no heartbeat or payload for `STALE_AFTER_S` (default 60) is reported as `Poor`.
+Staleness: a collector that stops reporting is downgraded, not shown at its last good state.
 
 ## Collector local API (port 8101)
 

@@ -34,7 +34,7 @@ Sources ─► Collect ─► Redact ─► Aggregate ─► Analyze locally ─
 - **Local-first privacy:** secret scrubbing, HMAC pseudonymous source IDs, and a strict allow-list schema that rejects any extra field.
 - **Metadata-only SaaS:** tenant ID comes from the authenticated credential, never from the payload; one datastore per tenant, pinned to its region.
 - **Any traffic format:** the collector auto-detects and parses JSON, syslog, text, CSV, key=value, SNMP and flow data into one internal model, and batches and compresses what it sends.
-- **Highly available, automated, packaged:** stateless SaaS replicas behind a load balancer on shared Postgres; collectors enroll themselves with a one-time token; everything ships as Docker images and starts with one command.
+- **Highly available (replicas on shared Postgres), automated, packaged:** stateless SaaS replicas share one Postgres with row-level tenant isolation. One-time-token enrollment is planned. Docker packaging was removed for now; everything runs natively (see Quick start).
 - **Four health states:** Excellent / Good / Fair / Poor, with configurable thresholds, a reason for every transition, and stale-data downgrade.
 - **Explainable AIOps:** baselines and anomaly detection beyond static thresholds, correlation of many alerts into one incident, and recommendations that show their contributing signals, confidence and reasoning path.
 - **Reliable delivery:** local buffering during outages, retry with backoff, idempotent payload IDs, and out-of-order events placed by event time.
@@ -52,7 +52,7 @@ Sources ─► Collect ─► Redact ─► Aggregate ─► Analyze locally ─
 
 ## Planned stack
 
-Python 3.11 (FastAPI, Pydantic) · SQLite on the collector, Postgres on the SaaS · nginx or Traefik load balancer · React + Vite · Docker Compose · GitHub Actions CI
+Python 3.11+ (FastAPI, Pydantic) · SQLite on the collector, PostgreSQL 16+ on the SaaS (row-level security) · React + Vite · GitHub Actions CI
 
 ## Planned repo layout
 
@@ -63,28 +63,54 @@ dashboard/   React + Vite dashboard
 simulator/   telemetry generator and live-scenario injectors
 docs/        phase documents and diagrams
 scripts/     one demo script per live scenario
-deploy/      load balancer config, install and enrollment scripts, CI workflow
 ```
 
-## Quick start
+## Quick start (no Docker)
 
-Run the tests (Python 3.11):
+Needs Python 3.11+, Node 20+ and PostgreSQL 16+ installed locally.
 
 ```
-pip install -r collector/requirements.txt -r saas/requirements.txt pytest
+pip install -r collector/requirements.txt -r saas/requirements.txt
 python -m pytest collector saas -q
 ```
 
-Run the whole stack (two SaaS replicas, Postgres, load balancer, collector, dashboard):
+Database tests in `saas/tests` are skipped unless `TEST_DATABASE_URL` points at a dedicated, migrated test database (see `saas/README.md`).
+
+**1. A local Postgres (one time, port 5433, PowerShell):**
 
 ```
-docker compose up --build
-docker compose --profile demo run --rm simulator
+$pg = "C:\Program Files\PostgreSQLin"
+& "$pg\initdb.exe" -D data\pg -U postgres --auth=trust -E UTF8
+& "$pg\pg_ctl.exe" -D data\pg -o "-p 5433" -l data\pg.log start
+& "$pg\createdb.exe" -h localhost -p 5433 -U postgres signal
+$env:ADMIN_DATABASE_URL = "postgresql://postgres@localhost:5433/signal"; $env:SAAS_DB_PASSWORD = "dev_app_password"
+python -m saas.migrate
 ```
 
-Then open the collector's local views at `http://localhost:8101/local/raw` (secrets visible) and `http://localhost:8101/local/egress` (exactly what left), and the dashboard at `http://localhost:5173`. Try `docker compose stop saas-1` to kill a replica, or `curl -X POST localhost:8101/local/saas-link/down` to simulate a SaaS outage.
+**2. Two SaaS replicas, one terminal each** (dev credentials, never reuse them):
 
-The payload contract is frozen in [contracts/](contracts/): `collector/schema.py` is the source, `contracts/payload.schema.json` is generated from it, and a test fails if they drift. Regenerate with `python -m collector.export_schema`.
+```
+$env:DATABASE_URL = "postgresql://signal_app:dev_app_password@localhost:5433/signal"
+$env:REGION = "in"
+$env:SAAS_AUTH_JSON = '{"collectors":{"key-acme-1":{"tenant":"t-acme","region":"in","collector":"col-blr-01","secret":"dev-secret-acme"}},"dashboard":{"dash-acme":{"tenant":"t-acme","region":"in","role":"operator"}}}'
+$env:REPLICA_ID = "1"; python -m uvicorn saas.main:app --port 8000
+# second terminal: same variables, $env:REPLICA_ID = "2", --port 8001
+```
+
+**3. Collector, simulator, dashboard:**
+
+```
+$env:SAAS_URL = "http://127.0.0.1:8000"; python -m uvicorn collector.main:app --port 8101
+python simulator/generator.py --scenario secret
+python simulator/generator.py --seconds 60
+cd dashboard; npm install; npm run dev
+```
+
+Look at `http://localhost:8101/local/raw` (secrets visible, local only) and `http://localhost:8101/local/egress` (exactly what left). Read the SaaS side with `Authorization: Bearer dash-acme` on `http://localhost:8001/v1/fleet` or `/v1/proof` (replica 2 reads what replica 1 stored). Simulate an outage with `curl -X POST localhost:8101/local/saas-link/down` (and `/up` to reconnect).
+
+There is no load balancer now, so the collector talks to one replica; stopping that replica makes it buffer and retry. The dashboard still shows demo data and is not connected to the SaaS yet.
+
+The payload contract is in [contracts/](contracts/): `collector/schema.py` is the source, `contracts/payload.schema.json` is generated from it, and a test fails if they drift. Regenerate with `python -m collector.export_schema`.
 
 ## Documentation
 

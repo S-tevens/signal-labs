@@ -94,6 +94,12 @@ class LocalStore:
             )
             self._db.commit()
 
+    def mark_rejected(self, payload_id: str, reason: str) -> None:
+        """Permanently refused by the SaaS: stop retrying, keep the record for the operator."""
+        with self._lock:
+            self._db.execute("UPDATE outbox SET status='rejected', sent_at=? WHERE payload_id=?", (time.time(), payload_id))
+            self._db.commit()
+
     def mark_failed(self, payload_ids: list[str]) -> None:
         """Exponential backoff per payload, capped at 30 s."""
         with self._lock:
