@@ -28,7 +28,7 @@ foreach ($f in "docs\p3\collector.md", "docs\p4\demo-runbook.md", "docs\phase-3.
 foreach ($f in "saas\config\thresholds.yaml", "collector\policy.yaml", "collector\mapping.yaml", "collector\health.yaml") { if (Test-Path $f) { Copy-Item $f (Join-Path $stage "config") } }
 
 # Refuse to bundle anything that looks like a credential.
-$pattern = 'dev-secret-[a-z]+|\bdash-[a-z]+\b|\bkey-[a-z]+-\d\b|Bearer\s+[A-Za-z0-9._-]{20,}|AKIA[0-9A-Z]{16}|enroll(ment)?[_-]token["'': =]+[A-Za-z0-9._-]{12,}'
+$pattern = 'dev-secret-[a-z]+|\bdash-[a-z]+\b|\bkey-[a-z]+-\d\b|Bearer\s+[A-Za-z0-9._-]{20,}|AKIA[0-9A-Z]{16}|AQ\.[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{30,}|enroll(ment)?[_-]token["'': =]+[A-Za-z0-9._-]{12,}'
 $hits = Get-ChildItem $stage -Recurse -File | Select-String -Pattern $pattern -CaseSensitive:$false | Where-Object { $_.Line -notmatch 'AKIAABCDEFGHIJKLMNOP' } | Select-Object -First 10  # that one is the fake test key the secret scenario prints
 if ($hits) {
   Write-Host "Refusing to bundle: these files look like they contain a credential:" -ForegroundColor Red

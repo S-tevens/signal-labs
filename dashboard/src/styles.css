@@ -2757,3 +2757,8 @@ small { font-variant-numeric: tabular-nums; }
 .status-wheel .wheel-count { font-size: 30px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .status-wheel .wheel-name { font-size: 11.5px; font-weight: 500; }
 .fleet-status-hero { min-height: 0; }
+
+/* AI summary on the incident workspace */
+.ai-summary { margin: 18px 0; padding: 16px 18px; border: 1px solid #dfe3ea; border-radius: 12px; background: #f7f9fe; }
+.ai-summary h3 { margin: 0 0 4px; }
+.ai-text { white-space: pre-wrap; line-height: 1.55; max-width: 70ch; margin: 12px 0 6px; }

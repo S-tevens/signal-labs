@@ -506,7 +506,7 @@ def render_markdown(report: dict) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("which", choices=["all", "latency", "alert", "anomaly", "offline", "delivery"], nargs="*", default=["all"],
+    ap.add_argument("which", nargs="*", default=None, metavar="{all,latency,alert,anomaly,offline,delivery}",
                     help="one or more tests (default: all)")
     ap.add_argument("--duration", type=float, default=60, help="seconds of live traffic for the latency test")
     ap.add_argument("--warmup", type=float, default=50, help="seconds of normal data before the spike (the platform needs about 40 s for a baseline)")
@@ -527,7 +527,10 @@ def main() -> int:
              "anomaly": lambda: test_alert(obs, args.warmup, 45, value=70.0, prefix="measure-anom-"),
              "offline": lambda: test_offline(obs), "delivery": lambda: test_delivery(obs, args.outage)}
     try:
-        chosen = list(tests) if "all" in args.which else [n for n in tests if n in args.which]
+        bad = [w for w in (args.which or []) if w not in ("all", *tests)]
+        if bad:
+            ap.error(f"unknown test(s) {bad}; choose from all, {', '.join(tests)}")
+        chosen = list(tests) if not args.which or "all" in args.which else [n for n in tests if n in args.which]
         for name in chosen:
             print(f"== {name} ==")
             report["results"][name] = tests[name]()
