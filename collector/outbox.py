@@ -13,6 +13,7 @@ Every drop and purge is counted in the `meta` table so data loss is visible (GET
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -20,6 +21,15 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
+
+def canonical(payload: dict) -> bytes:
+    """The exact bytes of one payload as it appears inside a delivery batch (sorted keys, no spaces)."""
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def digest_of(payload: dict) -> str:
+    return hashlib.sha256(canonical(payload)).hexdigest()
+
 
 # Enforce write-time caps every N inserts: cheap, and bounds how far a flood can overshoot a cap.
 _RAW_CHECK_EVERY = 100
@@ -84,6 +94,8 @@ class LocalStore:
             cols = {r["name"] for r in self._db.execute("PRAGMA table_info(outbox)")}
             if "raw_ids" not in cols:
                 self._db.execute("ALTER TABLE outbox ADD COLUMN raw_ids TEXT NOT NULL DEFAULT '[]'")
+            if "digest" not in cols:  # SHA-256 of the payload's canonical bytes, fixed when it is queued
+                self._db.execute("ALTER TABLE outbox ADD COLUMN digest TEXT")
             self._db.commit()
 
     # ---- counters that survive restarts ----
@@ -248,7 +260,7 @@ class LocalStore:
         ids = [raw_ids] if isinstance(raw_ids, int) else list(raw_ids or [])
         with self._lock:
             self._db.execute(
-                "INSERT INTO outbox(payload_id, raw_id, raw_ids, body, redactions, created_at) VALUES (?,?,?,?,?,?)",
+                "INSERT INTO outbox(payload_id, raw_id, raw_ids, body, redactions, created_at, digest) VALUES (?,?,?,?,?,?,?)",
                 (
                     payload["payload_id"],
                     ids[0] if ids else None,
@@ -256,6 +268,7 @@ class LocalStore:
                     json.dumps(payload, sort_keys=True),
                     json.dumps(sorted(set(redactions))),
                     time.time(),
+                    digest_of(payload),
                 ),
             )
             self._enqueue_since_check += 1
@@ -272,6 +285,30 @@ class LocalStore:
                 (time.time(), limit),
             ).fetchall()
         return [json.loads(r["body"]) for r in rows]
+
+    def pending_rows(self, limit: int) -> list[tuple[dict, str | None]]:
+        """Like pending(), with the digest fixed at queue time so the sender can prove it sends what was queued."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT body, digest FROM outbox WHERE status='pending' AND next_attempt_at <= ? ORDER BY created_at LIMIT ?",
+                (time.time(), limit),
+            ).fetchall()
+        return [(json.loads(r["body"]), r["digest"]) for r in rows]
+
+    def pending_info(self) -> dict:
+        """What is waiting: how many, how long the oldest has waited, and when the next retry is due."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT COUNT(*) c, MIN(created_at) oldest, MIN(next_attempt_at) next_try, MAX(attempts) max_attempts "
+                "FROM outbox WHERE status='pending'"
+            ).fetchone()
+        now = time.time()
+        return {
+            "pending": int(row["c"]),
+            "oldest_pending_age_s": round(now - row["oldest"], 1) if row["oldest"] else None,
+            "next_retry_in_s": round(max(0.0, row["next_try"] - now), 1) if row["c"] and row["next_try"] and row["next_try"] > now else 0.0 if row["c"] else None,
+            "max_attempts": int(row["max_attempts"] or 0),
+        }
 
     def mark_sent(self, payload_ids: list[str]) -> None:
         with self._lock:
@@ -304,7 +341,7 @@ class LocalStore:
         """One payload exactly as queued, with the raw record ids and redactions behind it."""
         with self._lock:
             r = self._db.execute(
-                "SELECT payload_id, raw_id, raw_ids, body, redactions, status, attempts, created_at, sent_at "
+                "SELECT payload_id, raw_id, raw_ids, body, redactions, status, attempts, created_at, sent_at, digest "
                 "FROM outbox WHERE payload_id=?",
                 (payload_id,),
             ).fetchone()
@@ -319,6 +356,7 @@ class LocalStore:
             "sent_at": r["sent_at"],
             "redactions_applied": json.loads(r["redactions"]),
             "payload": json.loads(r["body"]),
+            "digest": r["digest"] or digest_of(json.loads(r["body"])),
         }
 
     def raw_by_ids(self, ids: list[int]) -> list[dict]:
@@ -343,7 +381,7 @@ class LocalStore:
         """Exactly what was queued to leave, newest first, with the redactions applied upstream."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT payload_id, raw_id, raw_ids, body, redactions, status, attempts, created_at, sent_at "
+                "SELECT payload_id, raw_id, raw_ids, body, redactions, status, attempts, created_at, sent_at, digest "
                 "FROM outbox ORDER BY created_at DESC, rowid DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -358,6 +396,7 @@ class LocalStore:
                 "sent_at": r["sent_at"],
                 "redactions_applied": json.loads(r["redactions"]),
                 "payload": json.loads(r["body"]),
+                "digest": r["digest"] or digest_of(json.loads(r["body"])),
             }
             for r in rows
         ]

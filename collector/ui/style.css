@@ -57,3 +57,7 @@ mark.secret { background: var(--mark); color: var(--mark-text); border-radius: 3
 td.good { color: var(--good); font-weight: 700; } td.bad { color: var(--bad); font-weight: 700; }
 details { margin-top: 8px; } summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .muted { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
+
+.strip { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 16px 12px; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; }
+.strip.held { border-color: #b45309; background: #fffbeb; font-weight: 600; }
+.strip-text { margin: 0; }

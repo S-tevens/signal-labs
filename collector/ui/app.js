@@ -35,6 +35,16 @@ function h(tag, attrs, ...children) {
   return node;
 }
 
+const state_hold = { held: false };
+
+// POST helper for the two buttons that change delivery. The custom header is what proves the request came from
+// this page and not from another site open in the same browser.
+async function postLocal(path) {
+  const res = await fetch(path, { method: "POST", headers: { "X-Requested-With": "local-ui" } });
+  if (!res.ok) throw new Error(path + " returned HTTP " + res.status);
+  return res.json();
+}
+
 const clock = (epochSeconds) => (epochSeconds ? new Date(epochSeconds * 1000).toLocaleTimeString() : "—");
 
 function summarize(payload) {
@@ -49,11 +59,45 @@ function showError(message) {
   box.hidden = !message;
 }
 
+// ---------- buffer strip and hold ----------
+const plural = (n, word) => n + " " + word + (n === 1 ? "" : "s");
+
+async function loadStrip() {
+  try {
+    const b = await getJSON("/local/buffer");
+    state_hold.held = !!(b.hold && b.hold.held);
+    const parts = [];
+    parts.push("Link " + b.link);
+    parts.push(plural(b.pending, "payload") + " waiting");
+    if (b.oldest_pending_age_s != null) parts.push("oldest " + b.oldest_pending_age_s + " s");
+    if (state_hold.held) parts.push("HELD, auto-release in " + Math.ceil(b.hold.auto_release_in_s) + " s");
+    else if (b.hold && b.hold.last_release) parts.push("last release: " + b.hold.last_release.reason);
+    if (b.last_error) parts.push("last error: " + b.last_error);
+    $("#strip-text").textContent = parts.join(" · ");
+    $("#strip").classList.toggle("held", state_hold.held);
+    $("#hold-toggle").textContent = state_hold.held ? "Release" : "Hold sending";
+  } catch (err) {
+    $("#strip-text").textContent = "Cannot read the buffer: " + err.message;
+  }
+}
+
+async function toggleHold() {
+  try {
+    await postLocal(state_hold.held ? "/local/release" : "/local/hold");
+    showError("");
+  } catch (err) {
+    showError("Could not change the hold: " + err.message);
+  }
+  await loadStrip();
+  await loadList();
+}
+
 // ---------- list ----------
 async function loadList() {
   try {
     const items = await getJSON("/local/egress?limit=300");
     showError("");
+    loadStrip();
     const only = $("#only-secrets").checked;
     const shown = only ? items.filter(hasCredentials) : items;
     renderList(shown, items.length);
@@ -170,6 +214,8 @@ function renderDetail(d) {
     h("h2", { text: "Left the environment" }),
     h("p", { class: "sub" }, "The exact payload queued to the SaaS · status ", h("strong", { text: d.status }), " · " + d.attempts + " attempt(s)"),
     h("table", { class: "fields" }, h("tbody", {}, ...rows)),
+    h("p", { class: "sub", text: d.status === "sent" ? "Sent at " + clock(d.sent_at) : d.status === "pending" ? "Not sent yet. It leaves only after release (or when the link is back)." : "Closed at " + clock(d.sent_at) }),
+    h("p", { class: "sub" }, "SHA-256 of the exact bytes: ", h("code", { class: "mono", text: d.digest })),
     h("details", {}, h("summary", { text: "Raw JSON, byte for byte" }), h("pre", { class: "json", text: JSON.stringify(d.payload, null, 2) })),
   );
 
@@ -199,9 +245,12 @@ function renderDetail(d) {
 function schedule() {
   clearInterval(state.timer);
   if ($("#auto").checked) state.timer = setInterval(loadList, 3000);
+  clearInterval(state.stripTimer);
+  state.stripTimer = setInterval(loadStrip, 1000);
 }
 
 $("#refresh").addEventListener("click", loadList);
+$("#hold-toggle").addEventListener("click", toggleHold);
 $("#only-secrets").addEventListener("change", () => { state.selected = null; loadList(); });
 $("#auto").addEventListener("change", schedule);
 loadList();
