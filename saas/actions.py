@@ -49,7 +49,7 @@ def propose(db, who, body):
     ident, now = str(uuid.uuid4()), utc()
     db.execute('INSERT INTO actions(id,incident_id,action_type,parameters,status,proposed_by,created_at,updated_at,rollback_plan) VALUES(?,?,?,?,?,?,?,?,?)',
                (ident, incident_id, kind, dump(params), 'proposed', who.role, now, now, TYPES[kind]['rollback']))
-    audit(db, 'action_proposed', ident, {'role': who.role, 'incident_id': incident_id, 'action_type': kind, 'simulation_only': True})
+    audit(db, 'action_proposed', ident, {'role': who.role, 'actor': who.user or 'api-token', 'incident_id': incident_id, 'action_type': kind, 'simulation_only': True})
     return get_action(db, ident)
 
 def get_action(db, ident):
@@ -68,5 +68,5 @@ def transition(db, who, ident, operation):
     if action['status'] != expected: raise HTTPException(409, 'Invalid action transition')
     now = utc()
     db.execute('UPDATE actions SET status=?,updated_at=? WHERE id=?', (result, now, ident))
-    audit(db, 'action_' + result, ident, {'role': who.role, 'simulation_only': True, 'rollback_plan': action['rollback_plan'] if operation == 'rollback' else None})
+    audit(db, 'action_' + result, ident, {'role': who.role, 'actor': who.user or 'api-token', 'simulation_only': True, 'rollback_plan': action['rollback_plan'] if operation == 'rollback' else None})
     return get_action(db, ident)

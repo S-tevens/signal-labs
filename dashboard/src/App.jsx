@@ -39,6 +39,8 @@ import {
 import { LIVE, useLiveData } from "./api.js";
 import Analytics from "./Analytics.jsx";
 import DataFlow from "./DataFlow.jsx";
+import UsersAdmin from "./Users.jsx";
+import { UserMenu } from "./Auth.jsx";
 import { ObjectExplorer, HealthHistory, IncidentWorkspace, ReceivedPayload } from "./Platform.jsx";
 
 // Live data from the SaaS when a dashboard token is configured, labelled demo data otherwise.
@@ -63,6 +65,7 @@ const pages = {
   received: ["Received payload", "Inspect metadata stored for your tenant."],
   objects: ["Object explorer", "Explore linked metadata across your monitored environment."],
   history: ["Health history", "Review collector health changes and their recorded reasons."],
+  users: ["Users and roles", "Decide who can see and do what in your organization."],
   egress: [
     "Egress proof",
     "Inspect the boundary between private records and approved metadata.",
@@ -78,6 +81,7 @@ const nav = [
   { id: "objects", label: "Object explorer", icon: Database },
   { id: "history", label: "Health history", icon: Clock3 },
   { id: "egress", label: "Local egress", icon: FileJson },
+  { id: "users", label: "Users", icon: ShieldCheck, adminOnly: true },
 ];
 const regionName = { in: "India", eu: "Europe" };
 function currentPage() {
@@ -1104,7 +1108,7 @@ function Dashboard() {
           <div className="topbar-right">
             <button className="icon-button header-help" aria-label="Open demo guide" onClick={() => setHelp(true)}><CircleHelp size={18}/></button>
             <button className="icon-button notification-button" aria-label="Open incidents" onClick={() => { location.hash = "#/incidents"; }}><Bell size={18}/><i className="notification-dot" /></button>
-            <span className="top-avatar" title="Team Mirai">M</span>
+            {mode === "live" ? <UserMenu /> : <span className="top-avatar" title="Demo data">M</span>}
           </div>
         </header>
         <main>
@@ -1165,10 +1169,10 @@ function Dashboard() {
             </div>
           </div>
           <nav className="top-nav" aria-label="Dashboard views">
-            {nav.map((n) => <a key={n.id} href={`#/${n.id}`} className={page === n.id ? 'active' : ''} aria-current={page === n.id ? 'page' : undefined}>{n.label}{n.id === 'incidents' && <span className="nav-count">{incidents.filter(i => region === 'all' || i.region === region).length}</span>}</a>)}
+            {nav.filter((n) => !n.adminOnly || session?.permissions?.includes("users.manage")).map((n) => <a key={n.id} href={`#/${n.id}`} className={page === n.id ? 'active' : ''} aria-current={page === n.id ? 'page' : undefined}>{n.label}{n.id === 'incidents' && <span className="nav-count">{incidents.filter(i => region === 'all' || i.region === region).length}</span>}</a>)}
             <a className="nav-cta" href="#/incidents">Review incidents <span>{incidents.filter(i => region === 'all' || i.region === region).length}</span></a>
           </nav>
-          {mode === "live" && session && <p className="tenant-scope">Tenant: <strong>{session.tenant_id}</strong> · Region: {session.region.toUpperCase()} · Role: <strong>{session.role}</strong> · To switch tenants or roles, use a dashboard token for that tenant and role.</p>}
+          {mode === "live" && session && <p className="tenant-scope">Tenant: <strong>{session.tenant_id}</strong> · Region: {session.region.toUpperCase()} · Role: <strong>{session.role}</strong> · Sign out from the account menu to switch person.</p>}
           {mode === "live" && status === "loading" && (
             <div className="notice">
               <RefreshCw size={18} />
@@ -1207,6 +1211,7 @@ function Dashboard() {
           {page === "objects" && <ObjectExplorer />}
           {page === "history" && <HealthHistory />}
           {page === "egress" && <Egress notify={setToast} />}
+          {page === "users" && <UsersAdmin />}
           <footer>
             <span>
               <Activity size={13} />

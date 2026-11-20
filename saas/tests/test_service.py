@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from saas.main import create_app
 from saas.store import utc
 import pytest
-AUTH={'collectors':{'c1':{'tenant':'t-one','region':'in','collector':'col-one','secret':'secret1'},'c2':{'tenant':'t-two','region':'in','collector':'col-two','secret':'secret2'},'eu':{'tenant':'t-three','region':'eu','collector':'col-three','secret':'secret3'}},'dashboard':{'admin':{'tenant':'t-one','region':'in','role':'admin'},'dv':{'tenant':'t-one','region':'in','role':'viewer'},'d1':{'tenant':'t-one','region':'in','role':'operator'},'d2':{'tenant':'t-two','region':'in','role':'viewer'},'d3':{'tenant':'t-three','region':'eu','role':'operator'}}}
+AUTH={'collectors':{'c1':{'tenant':'t-one','region':'in','collector':'col-one','secret':'secret1'},'c2':{'tenant':'t-two','region':'in','collector':'col-two','secret':'secret2'},'eu':{'tenant':'t-three','region':'eu','collector':'col-three','secret':'secret3'}},'dashboard':{'admin':{'tenant':'t-one','region':'in','role':'admin'},'dv':{'tenant':'t-one','region':'in','role':'viewer'},'dau':{'tenant':'t-one','region':'in','role':'auditor'},'d1':{'tenant':'t-one','region':'in','role':'operator'},'d2':{'tenant':'t-two','region':'in','role':'viewer'},'d3':{'tenant':'t-three','region':'eu','role':'operator'}}}
 @pytest.fixture
 def db_url():
     url=os.getenv('TEST_DATABASE_URL')

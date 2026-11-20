@@ -128,6 +128,10 @@ if ($LASTEXITCODE -ne 0) { Write-Host "Migration failed." -ForegroundColor Red; 
 
 # ---- shared dev settings (never reuse these outside a local demo) ----
 $env:DATABASE_URL = "postgresql://signal_app:dev_app_password@localhost:$pgPort/signal"
+# Sign-in sessions are signed with a secret every replica shares. It is generated once and kept out of git (data\ is ignored).
+$secretFile = Join-Path $data "session.secret"
+if (-not (Test-Path $secretFile)) { -join ((1..48) | ForEach-Object { "{0:x}" -f (Get-Random -Maximum 16) }) | Set-Content $secretFile -Encoding ascii }
+$env:SAAS_SESSION_SECRET = (Get-Content $secretFile -Raw).Trim()
 $env:REGION = "in"
 if (-not $env:SAAS_AUTH_JSON) {
   $env:SAAS_AUTH_JSON = '{"collectors":{"key-globex-1":{"tenant":"t-globex","region":"in","collector":"col-globex-01","secret":"dev-secret-globex"},"key-acme-1":{"tenant":"t-acme","region":"in","collector":"col-blr-01","secret":"dev-secret-acme"}},"dashboard":{"dash-viewer":{"tenant":"t-acme","region":"in","role":"viewer"},"dash-globex":{"tenant":"t-globex","region":"in","role":"operator"},"dash-acme":{"tenant":"t-acme","region":"in","role":"operator"},"dash-admin":{"tenant":"t-acme","region":"in","role":"admin"}}}'
@@ -151,6 +155,9 @@ if ($Tls) {
 } else {
   Remove-Item Env:SAAS_CA_FILE, Env:REQUIRE_TLS -ErrorAction SilentlyContinue
 }
+# Development users (one per role). Their sign-ins are written to data\dev-users.txt, which is git-ignored.
+& $python -m saas.users seed (Join-Path $data "dev-users.json") 2>&1 | Out-Null
+
 # Everything (collector, dashboard, demo scenarios) enters the SaaS through the failover proxy unless -NoProxy.
 $entryPort = if ($NoProxy) { 8000 } else { 8080 }
 $saasUrl = "${scheme}://127.0.0.1:$entryPort"
@@ -194,7 +201,7 @@ if (-not $NoDashboard) {
     Write-Host "Installing dashboard dependencies (first run) ..."
     Push-Location $dash; npm ci --no-audit --no-fund | Out-Null; Pop-Location
   }
-  if (-not (Test-Path (Join-Path $dash ".env.local"))) { "VITE_DASHBOARD_TOKEN=dash-acme" | Set-Content (Join-Path $dash ".env.local") -Encoding ascii }
+  # The dashboard now asks people to sign in; no token is baked into the page.
   Start-Svc "dashboard" "npm.cmd" @("run", "dev") "http://127.0.0.1:5173" $dash
 }
 
@@ -218,6 +225,7 @@ if ($ok) { Write-Host "Stack is up." -ForegroundColor Green } else { Write-Host 
   @{ n = "SaaS entry point"; u = "$saasUrl" + $(if ($NoProxy) { "  (replica 1 directly, no failover)" } else { "  (failover proxy; status at /_lb/status)" }) },
   @{ n = "SaaS replica 1 / 2"; u = "${scheme}://127.0.0.1:8000 and ${scheme}://127.0.0.1:8001" + $(if ($Tls) { "  (TLS, CA: data\certs\ca.pem)" } else { "  (plain HTTP)" }) },
   @{ n = "Collector"; u = "http://127.0.0.1:8101  (local only: /local/ui, /local/raw, /local/egress, /local/policy, /local/host)" },
+  @{ n = "Sign-ins (dev users)"; u = "data\dev-users.txt  (one per role; passwords are generated and git-ignored)" },
   @{ n = "Logs"; u = "data\logs" }
 ) | ForEach-Object { "{0,-20} {1}" -f $_.n, $_.u }
 Write-Host ""

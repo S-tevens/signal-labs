@@ -11,7 +11,8 @@ from .auth import Auth
 from .store import Store,utc,epoch,dump,state,audit
 from .ingest import process,refresh
 from .llm import Engine
-from . import rbac
+from . import rbac, users
+from .enroll import TENANT
 from .proof import proof
 from .contract import validate_contract
 from .ontology import REGISTRY, list_objects, object_detail, incident_lineage, payload_lineage
@@ -157,8 +158,106 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
             refresh(db,config); return [{**{k:v for k,v in r.items() if k!="tenant_id"},'collector_id':r['id'],'last_seen_utc':utc(r['last_seen']),'resources':json.loads(r['resources']),'online':time.time()-r['last_seen']<config['offline_after_s']} for r in db.execute('SELECT * FROM fleet ORDER BY id')]
     @app.get('/v1/session')
     def session(request:Request):
-        who=need(request,'read')
-        return {'tenant_id':who.tenant,'region':who.region,'role':who.role,'permissions':rbac.permissions_of(who.role)}
+        who=auth.dashboard(request)
+        return {'tenant_id':who.tenant,'region':who.region,'role':who.role,'permissions':rbac.permissions_of(who.role) if not who.must_change else [],
+                'user':who.user,'display_name':who.display_name,'must_change_password':who.must_change,'auth':'session' if who.user else 'api-token'}
+    # ---- sign-in, sessions and user management ----
+    def clean_user_fields(data,creating):
+        if not isinstance(data,dict): raise HTTPException(422,'Expected a JSON object')
+        allowed={'username','display_name','role','temporary_password'} if creating else {'display_name','role','active'}
+        if set(data)-allowed: raise HTTPException(422,'Unknown field(s): '+', '.join(sorted(set(data)-allowed)))
+        out={}
+        if 'role' in data:
+            if data['role'] not in rbac.ROLES: raise HTTPException(422,'Role must be one of: '+', '.join(rbac.ROLES))
+            out['role']=data['role']
+        if 'display_name' in data:
+            name=data['display_name']
+            if not isinstance(name,str) or not 1<=len(name.strip())<=80: raise HTTPException(422,'Display name must be 1 to 80 characters')
+            out['display_name']=name.strip()
+        if 'active' in data:
+            if not isinstance(data['active'],bool): raise HTTPException(422,'active must be true or false')
+            out['active']=data['active']
+        return out
+    @app.post('/v1/login')
+    async def login(request:Request):
+        if not auth.session_secret: raise HTTPException(503,'Sign-in is not configured on this platform')
+        _,data=await body(request)
+        data=data if isinstance(data,dict) else {}
+        tenant,username,password=data.get('tenant'),data.get('username'),data.get('password')
+        bad=HTTPException(401,'Invalid organization, username or password')
+        if not (isinstance(tenant,str) and TENANT.fullmatch(tenant.strip()) and isinstance(username,str) and isinstance(password,str) and 0<len(password)<=256): raise bad
+        tenant,username=tenant.strip(),username.strip().lower()
+        def work():
+            with store.connect(tenant,lock=False) as db: return users.authenticate(db,username,password)
+        user,reason=await asyncio.to_thread(work)
+        if reason=='locked': raise HTTPException(429,'Too many failed attempts. Try again in a few minutes, or ask an administrator to reset your password.')
+        if not user: raise bad
+        token,exp=users.issue_token(auth.session_secret,tenant,username,user['token_version'])
+        return {'token':token,'expires_at':exp,'user':users.public(user),'tenant_id':tenant,'region':region}
+    @app.post('/v1/logout')
+    def logout(request:Request):
+        who=auth.dashboard(request)
+        if who.user:
+            with store.connect(who.tenant,lock=False) as db:
+                db.execute('UPDATE users SET token_version=token_version+1 WHERE username=?',(who.user,)); audit(db,'logout',who.user,{'actor':who.user})
+        return {'signed_out':True}
+    @app.post('/v1/me/password')
+    async def change_own_password(request:Request):
+        who=auth.dashboard(request)
+        if not who.user: raise HTTPException(403,'API tokens have no password')
+        _,data=await body(request)
+        if not isinstance(data,dict) or set(data)-{'current_password','new_password'}: raise HTTPException(422,'Expected current_password and new_password')
+        problem=users.password_problem(data.get('new_password'),who.user)
+        if problem: raise HTTPException(422,problem)
+        def work():
+            with store.connect(who.tenant,lock=False) as db:
+                row,reason=users.authenticate(db,who.user,str(data.get('current_password','')))
+                if not row: return None,reason
+                users.set_password(db,who.user,who.user,data['new_password'],False,'password_changed')
+                return users.get_user(db,who.user),'ok'
+        row,reason=await asyncio.to_thread(work)
+        if reason=='locked': raise HTTPException(429,'Too many failed attempts. Try again in a few minutes.')
+        if not row: raise HTTPException(403,'The current password is not correct')
+        token,exp=users.issue_token(auth.session_secret,who.tenant,who.user,row['token_version'])
+        return {'token':token,'expires_at':exp,'user':users.public(row)}
+    @app.get('/v1/users')
+    def list_all_users(request:Request):
+        who=need(request,'users.manage')
+        with store.connect(who.tenant,lock=False) as db: return users.list_users(db)
+    @app.post('/v1/users')
+    async def create_new_user(request:Request):
+        who=need(request,'users.manage'); _,data=await body(request)
+        fields=clean_user_fields(data,True)
+        username=str(data.get('username','')).strip().lower()
+        if not users.USERNAME.fullmatch(username): raise HTTPException(422,'Username: 2 to 40 characters, lower-case letters, digits, dot, dash or underscore')
+        if not fields.get('display_name') or 'role' not in fields: raise HTTPException(422,'display_name and role are required')
+        problem=users.password_problem(data.get('temporary_password'),username)
+        if problem: raise HTTPException(422,problem)
+        with store.connect(who.tenant) as db:
+            if users.get_user(db,username): raise HTTPException(409,'That username is already taken')
+            return users.create_user(db,who.user or 'api-token',username,fields['display_name'],fields['role'],data['temporary_password'])
+    @app.patch('/v1/users/{username}')
+    async def change_user(request:Request,username:str):
+        who=need(request,'users.manage'); _,data=await body(request)
+        changes=clean_user_fields(data,False)
+        if not changes: raise HTTPException(422,'Nothing to change: send role, active or display_name')
+        with store.connect(who.tenant) as db:
+            target=users.get_user(db,username)
+            if not target: raise HTTPException(404,'No such user')
+            losing_admin=target['role']=='admin' and target['active'] and (changes.get('role',target['role'])!='admin' or changes.get('active',True) is False)
+            if losing_admin and users.active_admins_except(db,username)==0: raise HTTPException(409,'This is the last active administrator. Make another user an administrator first.')
+            if username==who.user and changes.get('active') is False: raise HTTPException(409,'You cannot disable your own account.')
+            return users.update_user(db,who.user or 'api-token',username,changes)
+    @app.post('/v1/users/{username}/password')
+    async def reset_user_password(request:Request,username:str):
+        who=need(request,'users.manage'); _,data=await body(request)
+        if not isinstance(data,dict) or set(data)-{'temporary_password'}: raise HTTPException(422,'Expected temporary_password')
+        problem=users.password_problem(data.get('temporary_password'),username)
+        if problem: raise HTTPException(422,problem)
+        with store.connect(who.tenant) as db:
+            if not users.get_user(db,username): raise HTTPException(404,'No such user')
+            users.set_password(db,who.user or 'api-token',username,data['temporary_password'],True,'password_reset')
+            return users.public(users.get_user(db,username))
     @app.get('/v1/audit')
     def audit_log(request:Request,limit:int=100):
         who=need(request,'audit.read')
@@ -233,9 +332,10 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
     rbac.validate_config(auth.config)
     def need(request,permission):
         who=auth.dashboard(request)
+        if who.must_change: raise HTTPException(403,'Change your temporary password before continuing.')
         if not rbac.can(who.role,permission):
             try:
-                with store.connect(who.tenant) as db: audit(db,'access_denied',request.url.path,{'role':who.role,'permission':permission,'method':request.method})
+                with store.connect(who.tenant) as db: audit(db,'access_denied',request.url.path,{'role':who.role,'actor':who.user or 'api-token','permission':permission,'method':request.method})
             except Exception: logging.exception('Could not audit a denied request')
             raise HTTPException(403,f"The {who.role} role cannot {permission}. {rbac.PERMISSIONS.get(permission,'')}")
         return who

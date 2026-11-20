@@ -27,7 +27,7 @@ class Store:
                 bound=db.execute('SELECT region FROM signal.region_binding WHERE singleton=1').fetchone()[0]
                 if bound != self.region: raise RuntimeError('Database belongs to a different region')
     @contextmanager
-    def connect(self,tenant):
+    def connect(self,tenant,lock=True):
         import psycopg
         from psycopg.rows import dict_row
         if not self.url: raise RuntimeError('DATABASE_URL is required')
@@ -35,8 +35,9 @@ class Store:
             with conn.transaction():
                 conn.execute("SET LOCAL search_path TO signal, pg_catalog")
                 conn.execute("SELECT set_config('app.tenant_id', %s, true)",(tenant,))
-                # Serialize per-tenant processing across replicas, not across tenants.
-                conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',(tenant,))
+                # Serialize per-tenant processing across replicas, not across tenants. Read-only lookups (sign-in, session
+                # checks) pass lock=False so they never queue behind ingest.
+                if lock: conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',(tenant,))
                 yield DB(conn)
 def count(db,name,n=1): db.execute('INSERT INTO counters(name,value) VALUES(?,?) ON CONFLICT(tenant_id,name) DO UPDATE SET value=counters.value+excluded.value',(name,n))
 def audit(db,action,ref,detail): db.execute('INSERT INTO audit(action,reference,ts,detail) VALUES(?,?,?,?)',(action,ref,utc(),dump(detail)))

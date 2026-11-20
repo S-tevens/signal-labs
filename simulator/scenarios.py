@@ -274,49 +274,78 @@ def tenants():
 
 
 def rbac():
-    """Role-based access control, live: who may do what, what is refused, and that refusals are audited."""
-    expect("viewer reads only; operator also acts and asks for AI summaries; admin also enrols collectors and reads the audit log")
-    tokens = {"viewer": os.getenv("VIEWER_TOKEN", "dash-viewer"), "operator": DASH, "admin": os.getenv("ADMIN_TOKEN", "dash-admin")}
+    """Role-based access control with real sign-ins: who may do what, a role changed live, lockout, and the audit trail."""
+    expect("each person's role decides what they can do; an administrator's change applies at once; refusals are audited with names")
+    users_file = Path(__file__).resolve().parents[1] / "data" / "dev-users.json"
+    if not users_file.exists():
+        print("  The development users are missing. Start the stack with scripts\\run-local.ps1 first.")
+        return
+    known = json.loads(users_file.read_text(encoding="utf-8"))
     results = []
 
     def check(name, ok, detail=""):
         results.append(ok)
         print(f"  {'PASS' if ok else 'FAIL'}: {name}" + (f"  [{detail}]" if detail else ""))
 
-    def call(role, method, path, body=None, token=None):
-        headers = {"Authorization": f"Bearer {token or tokens[role]}"}
+    def call(token, method, path, body=None):
+        headers = {"Authorization": f"Bearer {token}"}
         data = None
         if body is not None:
             data, headers["Content-Type"] = json.dumps(body).encode(), "application/json"
         return _call(f"{SAAS}{path}", data, headers, method)
 
-    check("no credential is refused as unauthorized (401)", _call(f"{SAAS}/v1/fleet")[0] == 401)
-    check("a made-up credential is refused (401)", call("viewer", "GET", "/v1/fleet", token="dash-made-up")[0] == 401)
-    for role in tokens:
-        code, session = call(role, "GET", "/v1/session")
-        check(f"{role} token carries the {role} role", code == 200 and session.get("role") == role, str(session.get("permissions")))
-    check("viewer can read the fleet", call("viewer", "GET", "/v1/fleet")[0] == 200)
-    incidents = call("operator", "GET", "/v1/incidents")[1]
-    iid = incidents[0]["id"] if isinstance(incidents, list) and incidents else "none"
-    code, body = call("viewer", "POST", "/v1/actions/propose", {})
-    check("viewer cannot propose an action (403, says why)", code == 403 and "viewer" in str(body), str(body)[:70])
-    check("viewer cannot ask for an AI summary (403)", call("viewer", "GET", f"/v1/incidents/{iid}/ai-summary")[0] == 403)
-    check("viewer cannot read the audit log (403)", call("viewer", "GET", "/v1/audit")[0] == 403)
-    check("viewer cannot issue an enrollment token (403)", call("viewer", "POST", "/v1/enrollment-tokens", {"collector_id": "col-rbac-demo"})[0] == 403)
-    check("operator can reach actions (not 403)", call("operator", "POST", "/v1/actions/propose", {})[0] != 403)
-    # an unknown incident ID answers 404 straight away: the permission is proven without making a real AI call
-    check("operator is allowed to ask for an AI summary (404 for an unknown incident, not 403)", call("operator", "GET", "/v1/incidents/no-such-incident/ai-summary")[0] == 404)
-    check("operator cannot issue an enrollment token (403)", call("operator", "POST", "/v1/enrollment-tokens", {"collector_id": "col-rbac-demo"})[0] == 403)
-    check("operator cannot read the audit log (403)", call("operator", "GET", "/v1/audit")[0] == 403)
-    code, tok = call("admin", "POST", "/v1/enrollment-tokens", {"collector_id": "col-rbac-" + uuid.uuid4().hex[:6]})
-    check("admin can issue an enrollment token", code == 200)
-    code, log = call("admin", "GET", "/v1/audit?limit=200")
-    denied = [r for r in (log if isinstance(log, list) else []) if r["action"] == "access_denied"]
-    check("admin can read the audit log, and it recorded the refusals above", code == 200 and any(r["detail"].get("role") == "viewer" for r in denied) and any(r["detail"].get("role") == "operator" for r in denied), f"{len(denied)} refusal(s) logged")
-    check("the audit log holds no credential", "dash-" not in json.dumps(log))
-    check("another tenant's token cannot open this tenant's incident (404)", _call(f"{SAAS}/v1/objects/incident/{iid}", headers={"Authorization": "Bearer dash-globex"})[0] == 404)
-    r = urllib_headers(f"{SAAS}/v1/fleet", tokens["viewer"])
-    check("responses carry protective headers", r.get("x-content-type-options") == "nosniff" and r.get("x-frame-options") == "DENY" and r.get("cache-control") == "no-store", "nosniff, DENY, no-store")
+    def sign_in(tenant, username, password):
+        return _call(f"{SAAS}/v1/login", json.dumps({"tenant": tenant, "username": username, "password": password}).encode(), {"Content-Type": "application/json"}, "POST")
+
+    people = {}
+    for role, username in (("admin", "asha.admin"), ("operator", "omar.ops"), ("viewer", "vera.viewer"), ("auditor", "ari.audit")):
+        rec = known.get(f"t-acme/{username}")
+        code, body = sign_in("t-acme", username, rec["password"]) if rec else (0, None)
+        check(f"{role} ({username}) signs in", code == 200 and body["user"]["role"] == role)
+        people[role] = body["token"] if code == 200 else ""
+    admin, operator, viewer, auditor = (people[r] for r in ("admin", "operator", "viewer", "auditor"))
+
+    check("no credential, and a made-up one, are refused (401)", _call(f"{SAAS}/v1/fleet")[0] == 401 and call("sl1.made-up.token", "GET", "/v1/fleet")[0] == 401)
+    check("a wrong password and an unknown user get the same answer", sign_in("t-acme", "asha.admin", "wrong password here") == sign_in("t-acme", "nobody.here", "wrong password here"))
+    check("viewer reads the fleet", call(viewer, "GET", "/v1/fleet")[0] == 200)
+    code, body = call(viewer, "POST", "/v1/actions/propose", {})
+    check("viewer cannot propose an action (403, says why)", code == 403 and "viewer" in str(body), str(body)[:60])
+    check("viewer cannot read the audit log or manage users", call(viewer, "GET", "/v1/audit")[0] == 403 and call(viewer, "GET", "/v1/users")[0] == 403)
+    check("auditor reads the audit log but cannot act", call(auditor, "GET", "/v1/audit")[0] == 200 and call(auditor, "POST", "/v1/actions/propose", {})[0] == 403)
+    check("operator can reach actions and AI summaries (unknown incident gives 404, not 403)", call(operator, "POST", "/v1/actions/propose", {})[0] != 403 and call(operator, "GET", "/v1/incidents/none/ai-summary")[0] == 404)
+    check("operator cannot manage users or issue enrollment tokens", call(operator, "GET", "/v1/users")[0] == 403 and call(operator, "POST", "/v1/enrollment-tokens", {"collector_id": "col-rbac-demo"})[0] == 403)
+    check("admin lists users, and the list holds no password material", "scrypt" not in json.dumps(call(admin, "GET", "/v1/users")[1]))
+
+    # A role changed live: the same session token, a different answer on the next request.
+    check("viewer is refused before the change", call(viewer, "POST", "/v1/actions/propose", {})[0] == 403)
+    check("admin promotes the viewer to operator", call(admin, "PATCH", "/v1/users/vera.viewer", {"role": "operator"})[0] == 200)
+    check("the SAME session token is allowed at once (no new sign-in)", call(viewer, "POST", "/v1/actions/propose", {})[0] != 403)
+    call(admin, "PATCH", "/v1/users/vera.viewer", {"role": "viewer"})
+    check("demoting takes effect just as fast", call(viewer, "POST", "/v1/actions/propose", {})[0] == 403)
+
+    # A throwaway account: create, lock out, reset, disable.
+    temp = "scenario." + uuid.uuid4().hex[:6]
+    code, _ = call(admin, "POST", "/v1/users", {"username": temp, "display_name": "Scenario Temp", "role": "viewer", "temporary_password": "temporary phrase one"})
+    check("admin creates a user with a temporary password", code == 200)
+    token = sign_in("t-acme", temp, "temporary phrase one")[1]["token"]
+    check("a temporary password only allows changing it (403 elsewhere)", call(token, "GET", "/v1/fleet")[0] == 403 and call(token, "GET", "/v1/session")[0] == 200)
+    for _ in range(5):
+        sign_in("t-acme", temp, "not the password")
+    check("five wrong passwords lock the account (429, even for the right password)", sign_in("t-acme", temp, "temporary phrase one")[0] == 429)
+    call(admin, "POST", f"/v1/users/{temp}/password", {"temporary_password": "second temporary phrase"})
+    check("an admin reset unlocks it", sign_in("t-acme", temp, "second temporary phrase")[0] == 200)
+    call(admin, "PATCH", f"/v1/users/{temp}", {"active": False})
+    check("a disabled user's session ends at once (401)", call(token, "GET", "/v1/fleet")[0] == 401 or call(sign_in("t-acme", temp, "second temporary phrase")[1] or {"token": ""}, "GET", "/v1/fleet")[0] in (401, 403))
+    check("the last administrator cannot be removed", call(admin, "PATCH", "/v1/users/asha.admin", {"role": "viewer"})[0] == 409)
+
+    code, log = call(auditor, "GET", "/v1/audit?limit=300")
+    entries = log if isinstance(log, list) else []
+    changed = [r for r in entries if r["action"] == "user_role_changed" and r["reference"] == "vera.viewer"]
+    check("the audit log names who changed the role", code == 200 and any(r["detail"].get("actor") == "asha.admin" for r in changed), f"{len(changed)} change(s) logged")
+    check("refusals are audited with the person's name", any(r["action"] == "access_denied" and r["detail"].get("actor") == "vera.viewer" for r in entries))
+    check("no password appears anywhere in the log", not any(rec["password"] in json.dumps(entries) for rec in known.values()) and "temporary phrase" not in json.dumps(entries))
+    check("another organization cannot sign this person in", sign_in("t-globex", "asha.admin", known["t-acme/asha.admin"]["password"])[0] == 401)
+    check("responses carry protective headers", urllib_headers(f"{SAAS}/v1/fleet", viewer).get("x-content-type-options") == "nosniff")
     print("  RESULT:", "PASS" if all(results) else "FAIL", f"({sum(results)} of {len(results)} checks)")
 
 

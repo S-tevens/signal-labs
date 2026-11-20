@@ -1,18 +1,53 @@
 // Live adapter: SaaS API responses -> the shapes the views already use (see data.js).
 //
-// Live mode is on when VITE_DASHBOARD_TOKEN is set; otherwise the app shows labelled demo data.
+// Live mode is the default: people sign in, and the platform issues a short-lived session token that is kept in
+// sessionStorage (it ends with the tab). Set VITE_DEMO_MODE=1 to see labelled demo data without a platform.
 // In live mode a failed request is shown as an error with the last good data marked stale.
-// It never silently falls back to demo values.
-//
-// Security: a dashboard token in a Vite env var is bundled into the page. That is fine for a
-// local demo. Real deployments need a login that issues short-lived tokens. Collector secrets
-// must never be used here.
+// It never silently falls back to demo values. VITE_DEV_TOKEN is an optional developer shortcut (an API token);
+// leave it unset. Collector secrets must never be used here.
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const TOKEN = import.meta.env.VITE_DASHBOARD_TOKEN || "";
+const DEV_TOKEN = import.meta.env.VITE_DEV_TOKEN || "";
+const SESSION_KEY = "signal-labs-session";
 // "/api" is proxied to the SaaS by vite.config.js in dev (same origin, so no CORS).
 const BASE = (import.meta.env.VITE_SAAS_URL || "/api").replace(/\/$/, "");
-export const LIVE = TOKEN !== "";
+export const LIVE = import.meta.env.VITE_DEMO_MODE !== "1";
+
+export function getSession() {
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null"); } catch { return null; }
+}
+export function saveSession(session) {
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch { /* storage may be blocked */ }
+  window.dispatchEvent(new Event("signal-session-changed"));
+}
+export function clearSession() {
+  try { sessionStorage.removeItem(SESSION_KEY); } catch { /* nothing to clear */ }
+  window.dispatchEvent(new Event("signal-session-changed"));
+}
+export function currentToken() {
+  const s = getSession();
+  return (s && s.expires_at * 1000 > Date.now() ? s.token : "") || DEV_TOKEN;
+}
+export const isSignedIn = () => currentToken() !== "";
+
+async function problem(res, path) {
+  const detail = await res.json().then((j) => (typeof j.detail === "string" ? j.detail : null)).catch(() => null);
+  return Object.assign(new Error(detail || `${path.split("?")[0]} returned HTTP ${res.status}`), { status: res.status });
+}
+
+export async function login(tenant, username, password) {
+  const res = await fetch(`${BASE}/v1/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenant, username, password }) });
+  if (!res.ok) throw await problem(res, "/v1/login");
+  const body = await res.json();
+  saveSession({ token: body.token, expires_at: body.expires_at, user: body.user, tenant });
+  return body;
+}
+
+export async function logout() {
+  try { await request("/v1/logout", { method: "POST" }); } catch { /* the token is dropped either way */ }
+  clearSession();
+  window.dispatchEvent(new Event("signal-signed-out"));
+}
 
 const POLL_MS = 3000;
 const WINDOW_MS = 30 * 60 * 1000; // /v1/metrics returns oldest-first and is capped, so bound the window
@@ -22,10 +57,15 @@ export async function request(path, { signal, method = "GET", body } = {}) {
   const res = await fetch(`${BASE}${path}`, {
     method,
     signal,
-    headers: { Authorization: `Bearer ${TOKEN}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+    headers: { Authorization: `Bearer ${currentToken()}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  if (!res.ok) throw new Error(`${path.split("?")[0]} returned HTTP ${res.status}`);
+  if (res.status === 401 && getSession()) {
+    // The session ended (expired, signed out elsewhere, or the account was disabled): go back to the sign-in screen.
+    clearSession();
+    window.dispatchEvent(new Event("signal-signed-out"));
+  }
+  if (!res.ok) throw await problem(res, path);
   return res.json();
 }
 
