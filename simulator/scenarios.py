@@ -273,6 +273,59 @@ def tenants():
     print("  RESULT:", "PASS" if all(results) else "FAIL", f"({sum(results)} of {len(results)} checks)")
 
 
+def rbac():
+    """Role-based access control, live: who may do what, what is refused, and that refusals are audited."""
+    expect("viewer reads only; operator also acts and asks for AI summaries; admin also enrols collectors and reads the audit log")
+    tokens = {"viewer": os.getenv("VIEWER_TOKEN", "dash-viewer"), "operator": DASH, "admin": os.getenv("ADMIN_TOKEN", "dash-admin")}
+    results = []
+
+    def check(name, ok, detail=""):
+        results.append(ok)
+        print(f"  {'PASS' if ok else 'FAIL'}: {name}" + (f"  [{detail}]" if detail else ""))
+
+    def call(role, method, path, body=None, token=None):
+        headers = {"Authorization": f"Bearer {token or tokens[role]}"}
+        data = None
+        if body is not None:
+            data, headers["Content-Type"] = json.dumps(body).encode(), "application/json"
+        return _call(f"{SAAS}{path}", data, headers, method)
+
+    check("no credential is refused as unauthorized (401)", _call(f"{SAAS}/v1/fleet")[0] == 401)
+    check("a made-up credential is refused (401)", call("viewer", "GET", "/v1/fleet", token="dash-made-up")[0] == 401)
+    for role in tokens:
+        code, session = call(role, "GET", "/v1/session")
+        check(f"{role} token carries the {role} role", code == 200 and session.get("role") == role, str(session.get("permissions")))
+    check("viewer can read the fleet", call("viewer", "GET", "/v1/fleet")[0] == 200)
+    incidents = call("operator", "GET", "/v1/incidents")[1]
+    iid = incidents[0]["id"] if isinstance(incidents, list) and incidents else "none"
+    code, body = call("viewer", "POST", "/v1/actions/propose", {})
+    check("viewer cannot propose an action (403, says why)", code == 403 and "viewer" in str(body), str(body)[:70])
+    check("viewer cannot ask for an AI summary (403)", call("viewer", "GET", f"/v1/incidents/{iid}/ai-summary")[0] == 403)
+    check("viewer cannot read the audit log (403)", call("viewer", "GET", "/v1/audit")[0] == 403)
+    check("viewer cannot issue an enrollment token (403)", call("viewer", "POST", "/v1/enrollment-tokens", {"collector_id": "col-rbac-demo"})[0] == 403)
+    check("operator can reach actions (not 403)", call("operator", "POST", "/v1/actions/propose", {})[0] != 403)
+    # an unknown incident ID answers 404 straight away: the permission is proven without making a real AI call
+    check("operator is allowed to ask for an AI summary (404 for an unknown incident, not 403)", call("operator", "GET", "/v1/incidents/no-such-incident/ai-summary")[0] == 404)
+    check("operator cannot issue an enrollment token (403)", call("operator", "POST", "/v1/enrollment-tokens", {"collector_id": "col-rbac-demo"})[0] == 403)
+    check("operator cannot read the audit log (403)", call("operator", "GET", "/v1/audit")[0] == 403)
+    code, tok = call("admin", "POST", "/v1/enrollment-tokens", {"collector_id": "col-rbac-" + uuid.uuid4().hex[:6]})
+    check("admin can issue an enrollment token", code == 200)
+    code, log = call("admin", "GET", "/v1/audit?limit=200")
+    denied = [r for r in (log if isinstance(log, list) else []) if r["action"] == "access_denied"]
+    check("admin can read the audit log, and it recorded the refusals above", code == 200 and any(r["detail"].get("role") == "viewer" for r in denied) and any(r["detail"].get("role") == "operator" for r in denied), f"{len(denied)} refusal(s) logged")
+    check("the audit log holds no credential", "dash-" not in json.dumps(log))
+    check("another tenant's token cannot open this tenant's incident (404)", _call(f"{SAAS}/v1/objects/incident/{iid}", headers={"Authorization": "Bearer dash-globex"})[0] == 404)
+    r = urllib_headers(f"{SAAS}/v1/fleet", tokens["viewer"])
+    check("responses carry protective headers", r.get("x-content-type-options") == "nosniff" and r.get("x-frame-options") == "DENY" and r.get("cache-control") == "no-store", "nosniff, DENY, no-store")
+    print("  RESULT:", "PASS" if all(results) else "FAIL", f"({sum(results)} of {len(results)} checks)")
+
+
+def urllib_headers(url, token):
+    req = request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    with request.urlopen(req, timeout=10, context=_ctx(url)) as r:
+        return {k.lower(): v for k, v in r.getheaders()}
+
+
 def failed_logins():
     expect("one auth_failure_burst event (count=30, critical) and no raw login records exported")
     collector_send(failed_login_lines("web-1", 30))
@@ -636,6 +689,7 @@ SCENARIOS = {
     "remediation": remediation,
     "hold": hold,
     "tenants": tenants,
+    "rbac": rbac,
 }
 
 

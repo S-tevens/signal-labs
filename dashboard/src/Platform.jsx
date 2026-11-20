@@ -75,10 +75,24 @@ export function HealthHistory() {
   useEffect(() => { if (!LIVE) return; const ctrl=new AbortController(); request('/v1/health/history',{signal:ctrl.signal}).then(setRows).catch(e => { if(e.name!=='AbortError') setError(e.message); }).finally(() => { if(!ctrl.signal.aborted) setLoading(false); }); return () => ctrl.abort(); }, []);
   return <section className="panel platform-panel"><h2>Health history</h2><p>Collector state changes and reasons, recorded in UTC.</p><Thresholds/>{!LIVE ? <Message>Connect the SaaS to view recorded state changes.</Message> : loading ? <Message>Loading history…</Message> : error ? <Message>History could not be loaded: {error}</Message> : rows.length ? <div className="platform-object-list">{rows.map(r => <div className="platform-history" key={r.id}><strong>{r.collector} · {r.state}</strong><span>{r.ts} · {r.reason}</span></div>)}</div> : <Message>No health transitions recorded.</Message>}</section>;
 }
+// What the signed-in role may do, from the platform's own matrix (the platform enforces it too: this only explains).
+let sessionOnce = null;
+function usePermissions() {
+  const [session, setSession] = useState(null);
+  useEffect(() => {
+    if (!LIVE) return;
+    sessionOnce = sessionOnce || request('/v1/session').catch(() => null);
+    sessionOnce.then(setSession);
+  }, []);
+  const can = (permission) => !LIVE || !session || (session.permissions || []).includes(permission);
+  return { role: session?.role, can, why: (permission) => (can(permission) ? undefined : `Your role (${session?.role}) cannot do this. It needs the ${permission} permission.`) };
+}
+
 // AI summary: Gemini explains the incident from its metadata only. It is on demand, labelled, and never replaces the
 // rule-based recommendation shown with the incident.
 function AiSummary({ incidentId }) {
   const [state, setState] = useState({ status: 'idle' });
+  const perms = usePermissions();
   useEffect(() => { setState({ status: 'idle' }); }, [incidentId]);
   async function generate() {
     setState({ status: 'loading' });
@@ -89,12 +103,13 @@ function AiSummary({ incidentId }) {
   return <section className="ai-summary" aria-label="AI summary">
     <h3>AI summary</h3>
     <p className="muted">Gemini reads only this incident's metadata (signal values, method, thresholds), never raw logs.</p>
-    <button className="button" type="button" onClick={generate} disabled={state.status === 'loading'}>{state.status === 'loading' ? 'Writing summary…' : r?.available ? 'Regenerate summary' : 'Generate AI summary'}</button>
+    <button className="button" type="button" onClick={generate} disabled={state.status === 'loading' || !perms.can('ai.summary')} title={perms.why('ai.summary')}>{state.status === 'loading' ? 'Writing summary…' : r?.available ? 'Regenerate summary' : 'Generate AI summary'}</button>
     {r?.available && <><p className="ai-text">{r.text}</p><p className="muted">{r.basis} Model: {r.model}{r.cached ? ' (saved result)' : ''}.</p></>}
     {r && !r.available && <Message>{r.reason}</Message>}
   </section>;
 }
 export function IncidentWorkspace({ incidentId, mode }) {
+  const perms = usePermissions();
   const [lineage, setLineage] = useState(null), [actions, setActions] = useState([]), [catalog, setCatalog] = useState({}), [error, setError] = useState(''), [selected, setSelected] = useState(null), [type, setType] = useState('restart_service'), [service, setService] = useState(''), [credential, setCredential] = useState(''), [replicas, setReplicas] = useState(2), [busy, setBusy] = useState(false);
   async function load(signal) {
     try { const [l, a] = await Promise.all([request(`/v1/lineage/incident/${encodeURIComponent(incidentId)}`,{signal}), request(`/v1/actions?incident_id=${encodeURIComponent(incidentId)}`,{signal})]); setLineage(l); setActions(a.actions); setCatalog(a.types); setError(''); }
@@ -116,12 +131,13 @@ export function IncidentWorkspace({ incidentId, mode }) {
       {type === 'rotate_credentials' && <label>Credential reference<input value={credential} required maxLength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" onChange={e => setCredential(e.target.value)} placeholder="service-account"/></label>}
       {type === 'scale_capacity' && <label>Replicas<input type="number" min="1" max="20" required value={replicas} onChange={e => setReplicas(e.target.value)}/></label>}
       {type === 'isolate_source' && <p>Source: {lineage?.source_id || 'loading…'}</p>}
-      <button className="button" type="submit" disabled={busy || !lineage || !Object.keys(catalog).length}>Propose simulation</button></form>
+      <button className="button" type="submit" title={perms.why('action.propose')} disabled={!perms.can('action.propose') || busy || !lineage || !Object.keys(catalog).length}>Propose simulation</button></form>
     {actions.length === 0 ? <Message>No actions proposed for this incident.</Message> : actions.map(a => <Action key={a.id} action={a} busy={busy} transition={transition}/>)}
   </div>;
 }
 function Action({action, busy, transition}) {
+  const perms = usePermissions(), locked = !perms.can('action.decide');
   const [details, setDetails] = useState(null), [error, setError] = useState('');
   useEffect(() => { const ctrl=new AbortController(); request(`/v1/actions/${encodeURIComponent(action.id)}`,{signal:ctrl.signal}).then(setDetails).catch(e => { if(e.name!=='AbortError') setError(e.message); }); return () => ctrl.abort(); }, [action.id,action.updated_at]);
-  return <article className="platform-action"><strong>{labels[action.action_type] || action.action_type} · {action.status}</strong><p>{action.rollback_plan}</p><div className="platform-links">{action.status === 'proposed' && <><button className="button small" disabled={busy} onClick={() => transition(action.id,'approve')}>Approve simulation</button><button className="button small" disabled={busy} onClick={() => transition(action.id,'reject')}>Reject</button></>}{action.status === 'approved' && <button className="button small" disabled={busy} onClick={() => transition(action.id,'rollback')}>Record rollback</button>}</div>{error && <Message>{error}</Message>}{details && <ol className="platform-audit">{details.audit.map(entry => <li key={entry.id}>{entry.ts} · {entry.action} · {entry.detail.role}</li>)}</ol>}</article>;
+  return <article className="platform-action"><strong>{labels[action.action_type] || action.action_type} · {action.status}</strong><p>{action.rollback_plan}</p><div className="platform-links">{action.status === 'proposed' && <><button className="button small" title={perms.why('action.decide')} disabled={busy || locked} onClick={() => transition(action.id,'approve')}>Approve simulation</button><button className="button small" title={perms.why('action.decide')} disabled={busy || locked} onClick={() => transition(action.id,'reject')}>Reject</button></>}{action.status === 'approved' && <button className="button small" title={perms.why('action.decide')} disabled={busy || locked} onClick={() => transition(action.id,'rollback')}>Record rollback</button>}</div>{error && <Message>{error}</Message>}{details && <ol className="platform-audit">{details.audit.map(entry => <li key={entry.id}>{entry.ts} · {entry.action} · {entry.detail.role}</li>)}</ol>}</article>;
 }

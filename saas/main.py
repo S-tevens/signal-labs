@@ -8,14 +8,33 @@ from pydantic import ValidationError
 import yaml
 from .schema import Payload,Heartbeat
 from .auth import Auth
-from .store import Store,utc,epoch,dump,state
+from .store import Store,utc,epoch,dump,state,audit
 from .ingest import process,refresh
 from .llm import Engine
+from . import rbac
 from .proof import proof
 from .contract import validate_contract
 from .ontology import REGISTRY, list_objects, object_detail, incident_lineage, payload_lineage
 from .actions import TYPES, list_actions, propose, get_action, transition
 from .enroll import create_token, enroll
+
+class SecureHeaders:
+    """Adds protective headers to every response without buffering or wrapping the body (event streams stay streams)."""
+    def __init__(self, app): self.app=app
+    async def __call__(self, scope, receive, send):
+        if scope['type']!='http': return await self.app(scope, receive, send)
+        https=scope.get('scheme')=='https'
+        async def send_with_headers(message):
+            if message['type']=='http.response.start':
+                headers=list(message.get('headers',[])); present={k.lower() for k,_ in headers}
+                add=[(b'x-content-type-options',b'nosniff'),(b'x-frame-options',b'DENY'),(b'referrer-policy',b'no-referrer'),
+                     (b'content-security-policy',b"default-src 'none'; frame-ancestors 'none'")]
+                if https: add.append((b'strict-transport-security',b'max-age=31536000'))
+                if scope.get('path','').startswith('/v1/'): add.append((b'cache-control',b'no-store'))
+                headers+= [(k,v) for k,v in add if k not in present]
+                message={**message,'headers':headers}
+            await send(message)
+        await self.app(scope, receive, send_with_headers)
 
 def create_app(region=None,database_url=None,auth_config=None,thresholds=None,replica_id=None):
     region=region or os.getenv('REGION','in'); store=Store(database_url,region); auth=Auth(region,auth_config,store); replica_id=replica_id or os.getenv('REPLICA_ID','1')
@@ -94,7 +113,7 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
         return {'status':'ok','region':region,'replica_id':replica_id}
     @app.post('/v1/enrollment-tokens')
     async def enrollment_token(request:Request):
-        who=auth.dashboard(request); _,data=await body(request)
+        who=need(request,'enrollment.create'); _,data=await body(request)
         with store.connect(who.tenant) as db: result=create_token(db,who,data)
         return JSONResponse(result,headers={'Cache-Control':'no-store'})
     @app.post('/v1/enroll')
@@ -133,20 +152,30 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
         return await asyncio.to_thread(work)
     @app.get('/v1/fleet')
     def fleet(request:Request):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         with store.connect(who.tenant) as db:
             refresh(db,config); return [{**{k:v for k,v in r.items() if k!="tenant_id"},'collector_id':r['id'],'last_seen_utc':utc(r['last_seen']),'resources':json.loads(r['resources']),'online':time.time()-r['last_seen']<config['offline_after_s']} for r in db.execute('SELECT * FROM fleet ORDER BY id')]
     @app.get('/v1/session')
     def session(request:Request):
-        who=auth.dashboard(request)
-        return {'tenant_id':who.tenant,'region':who.region,'role':who.role}
+        who=need(request,'read')
+        return {'tenant_id':who.tenant,'region':who.region,'role':who.role,'permissions':rbac.permissions_of(who.role)}
+    @app.get('/v1/audit')
+    def audit_log(request:Request,limit:int=100):
+        who=need(request,'audit.read')
+        with store.connect(who.tenant) as db:
+            rows=db.execute('SELECT action,reference,ts,detail FROM audit ORDER BY ts DESC LIMIT ?',(max(1,min(limit,500)),)).fetchall()
+        return [{'action':r['action'],'reference':r['reference'],'ts':r['ts'],'detail':json.loads(r['detail'])} for r in rows]
+    @app.get('/v1/rbac')
+    def rbac_matrix(request:Request):
+        who=need(request,'read')
+        return {**rbac.matrix(),'you':{'role':who.role,'permissions':rbac.permissions_of(who.role)}}
     @app.get('/v1/health/thresholds')
     def health_thresholds(request:Request):
-        auth.dashboard(request)
+        need(request,'read')
         return {k:config[k] for k in ('metrics','stale_after_s','offline_after_s','baseline_min','baseline_window','anomaly_persistence_windows') if k in config}
     @app.get('/v1/system/status')
     def system_status(request:Request):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         with store.connect(who.tenant) as db:
             collectors=db.execute('SELECT COUNT(*) AS n FROM fleet').fetchone()['n']
             payloads=db.execute('SELECT COUNT(*) AS n FROM payloads').fetchone()['n']
@@ -154,7 +183,7 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
         return {'tenant_id':who.tenant,'region':region,'replica_id':replica_id,'database':'reachable','collectors':collectors,'payloads':payloads,'incidents':incidents}
     @app.get('/v1/metrics')
     def metrics(request:Request,source:str|None=None,name:str|None=None,limit:int=1000):
-        who=auth.dashboard(request); q='SELECT data,received FROM payloads WHERE metric IS NOT NULL'; args=[]
+        who=need(request,'read'); q='SELECT data,received FROM payloads WHERE metric IS NOT NULL'; args=[]
         from .aiops import canonical
         for field,val in [('source',source),('metric',canonical(name) if name else None)]:
             if val is not None: q+=f' AND {field}=?'; args.append(val)
@@ -166,84 +195,93 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
         with store.connect(who.tenant) as db: return [{**json.loads(r['data']),'received_ts_utc':utc(r['received'])} for r in db.execute(q+' ORDER BY ts,id LIMIT ?',(*args,max(1,min(limit,10000))))]
     @app.get('/v1/incidents')
     def incidents(request:Request):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         with store.connect(who.tenant) as db: return [json.loads(r['data']) for r in db.execute('SELECT data FROM incidents ORDER BY last_ts DESC')]
     @app.get('/v1/health/history')
     def history(request:Request):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         with store.connect(who.tenant) as db: return [{k:v for k,v in r.items() if k!="tenant_id"} for r in db.execute('SELECT * FROM health_history ORDER BY id DESC LIMIT 1000')]
     @app.get('/v1/proof')
     def evidence(request:Request,window_s:int|None=None):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         if window_s is not None and not 60<=window_s<=86400: raise HTTPException(422,'window_s must be between 60 and 86400')
         with store.connect(who.tenant) as db:return proof(db,window_s)
     @app.post('/v1/proof/render')
     def render(request:Request,payload_id:str):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         with store.connect(who.tenant) as db:
             if not db.execute('SELECT id FROM payloads WHERE id=?',(payload_id,)).fetchone(): raise HTTPException(404,'Unknown payload')
             db.execute('INSERT INTO renders(id,rendered) VALUES(?,?) ON CONFLICT(tenant_id,id) DO NOTHING',(payload_id,time.time()))
         return {'acknowledged':True}
     @app.post('/v1/remediation/{id}/approve')
     def remediation(request:Request,id:str):
-        auth.dashboard(request)
+        need(request,'action.decide')
         raise HTTPException(410,'Use the simulated action proposal and approval lifecycle')
     @app.get('/v1/ontology')
     def ontology(request:Request):
-        auth.dashboard(request)
+        need(request,'read')
         return REGISTRY
     @app.get('/v1/objects/{kind}')
     def objects(request:Request,kind:str):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         with store.connect(who.tenant) as db: return list_objects(db,who,kind)
     @app.get('/v1/objects/{kind}/{ident}')
     def object_by_id(request:Request,kind:str,ident:str):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         with store.connect(who.tenant) as db: return object_detail(db,who,kind,ident)
     ai_engine=Engine()
+    rbac.validate_config(auth.config)
+    def need(request,permission):
+        who=auth.dashboard(request)
+        if not rbac.can(who.role,permission):
+            try:
+                with store.connect(who.tenant) as db: audit(db,'access_denied',request.url.path,{'role':who.role,'permission':permission,'method':request.method})
+            except Exception: logging.exception('Could not audit a denied request')
+            raise HTTPException(403,f"The {who.role} role cannot {permission}. {rbac.PERMISSIONS.get(permission,'')}")
+        return who
     @app.get('/v1/ai/status')
     def ai_status(request:Request):
-        auth.dashboard(request)
+        need(request,'read')
         return ai_engine.status()
     @app.get('/v1/incidents/{ident}/ai-summary')
     def ai_summary(request:Request,ident:str):
-        who=auth.dashboard(request)
+        who=need(request,'ai.summary')
         with store.connect(who.tenant) as db: incident=object_detail(db,who,'incident',ident)  # 404 for another tenant's incident
         return ai_engine.explain(incident['properties'])
     @app.get('/v1/lineage/incident/{ident}')
     def incident_evidence(request:Request,ident:str):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         with store.connect(who.tenant) as db: return incident_lineage(db,who,ident)
     @app.get('/v1/lineage/payload/{ident}')
     def payload_evidence(request:Request,ident:str):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         with store.connect(who.tenant) as db: return payload_lineage(db,who,ident)
     @app.get('/v1/actions')
     def actions_list(request:Request,incident_id:str|None=None):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         with store.connect(who.tenant) as db: return {'types':TYPES,'actions':list_actions(db,incident_id)}
     @app.get('/v1/actions/{ident}')
     def action_get(request:Request,ident:str):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         with store.connect(who.tenant) as db: return get_action(db,ident)
     @app.post('/v1/actions/propose')
     async def action_propose(request:Request):
-        who=auth.dashboard(request); _,data=await body(request)
+        who=need(request,'action.propose'); _,data=await body(request)
         with store.connect(who.tenant) as db: return propose(db,who,data)
     @app.post('/v1/actions/{ident}/{operation}')
     def action_transition(request:Request,ident:str,operation:str):
-        who=auth.dashboard(request)
+        who=need(request,'action.decide')
         with store.connect(who.tenant) as db: return transition(db,who,ident,operation)
     @app.get('/v1/noise')
     def noise(request:Request):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         with store.connect(who.tenant) as db:
             rows=[json.loads(r['data']) for r in db.execute('SELECT data FROM incidents')]
             alerts=sum(r.get('alert_count',0) for r in rows); incidents_count=len(rows)
             return {'alerts':alerts,'incidents':incidents_count,'reduction_ratio':round(1-incidents_count/alerts,4) if alerts else None,'scope':'all retained incidents; correlated alerts only'}
     @app.get('/v1/stream')
     async def stream(request:Request):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         def snapshot():
             with store.connect(who.tenant) as db:
                 refresh(db,config)
@@ -256,5 +294,5 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
                     try: await asyncio.wait_for(condition.wait_for(lambda: versions.get(who.tenant,0)!=version),timeout=15)
                     except asyncio.TimeoutError: pass
         return StreamingResponse(generate(),media_type='text/event-stream',headers={'Cache-Control':'no-cache','X-Accel-Buffering':'no'})
-    return app
+    return SecureHeaders(app)
 app=create_app()

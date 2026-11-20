@@ -247,7 +247,9 @@ def test_edge_aggregation_to_saas_incident_and_lineage(client):
 
 def test_platform_visibility_and_health_reason(client):
     assert client.get('/v1/system/status').status_code == 401
-    assert get(client, '/v1/session').json() == {'tenant_id':'t-one','region':'in','role':'operator'}
+    session = get(client, '/v1/session').json()
+    assert {k: session[k] for k in ('tenant_id', 'region', 'role')} == {'tenant_id':'t-one','region':'in','role':'operator'}
+    assert 'action.propose' in session['permissions'] and 'enrollment.create' not in session['permissions']
     assert post(client,p('visible',val=99)).status_code == 200
     status=get(client,'/v1/system/status').json()
     assert (status['collectors'],status['payloads'],status['database']) == (1,1,'reachable')
