@@ -12,7 +12,7 @@ $pgData = Join-Path $root "data\pg"
 
 if (Test-Path $pidFile) {
   foreach ($s in (Get-Content $pidFile -Raw | ConvertFrom-Json)) {
-    if (Get-Process -Id $s.pid -ErrorAction SilentlyContinue) {
+    if ($s.pid -and (Get-Process -Id $s.pid -ErrorAction SilentlyContinue)) {
       # /T also ends child processes (npm starts node); the process may already be gone, so ignore errors.
       & taskkill.exe /PID $s.pid /T /F 2>$null | Out-Null
       Write-Host "stopped $($s.name) (pid $($s.pid))"
