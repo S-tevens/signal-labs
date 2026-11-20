@@ -3,6 +3,7 @@ import {
   Activity,
   ArrowUpRight,
   Bell,
+  BarChart3,
   Check,
   CheckCheck,
   ChevronDown,
@@ -14,6 +15,7 @@ import {
   Download,
   FileJson,
   Globe2,
+  GitBranch,
   Layers3,
   ListFilter,
   LockKeyhole,
@@ -35,6 +37,8 @@ import {
   egress,
 } from "./data.js";
 import { LIVE, useLiveData } from "./api.js";
+import Analytics from "./Analytics.jsx";
+import DataFlow from "./DataFlow.jsx";
 import { ObjectExplorer, HealthHistory, IncidentWorkspace } from "./Platform.jsx";
 
 // Live data from the SaaS when a dashboard token is configured, labelled demo data otherwise.
@@ -46,6 +50,8 @@ const pages = {
     "Fleet overview",
     "A clear picture of your infrastructure. Without the raw data.",
   ],
+  flow: ["Data flow", "Trace the journey from local telemetry to operational insights."],
+  analytics: ["Analytics overview", "Understand your fleet, signals, and incidents at a glance."],
   incidents: [
     "Incidents",
     "Less noise. More context. Know what to investigate next.",
@@ -63,6 +69,8 @@ const pages = {
 };
 const nav = [
   { id: "fleet", label: "Fleet overview", icon: Layers3 },
+  { id: "analytics", label: "Analytics", icon: BarChart3 },
+  { id: "flow", label: "Data flow", icon: GitBranch },
   { id: "incidents", label: "Incidents", icon: Activity },
   { id: "proof", label: "Performance proof", icon: ShieldCheck },
   { id: "objects", label: "Object explorer", icon: Database },
@@ -998,7 +1006,7 @@ function Egress({ notify }) {
 }
 
 function Dashboard() {
-  const { collectors, incidents, mode, status, error, updatedAt, refresh } = useData();
+  const { collectors, incidents, cpuSeries, latencySeries, analyticsSeries, proof, mode, status, error, updatedAt, refresh } = useData();
   const [page, setPage] = useState(currentPage);
   const [region, setRegion] = useState("in");
   const [range, setRange] = useState("1h");
@@ -1182,6 +1190,8 @@ function Dashboard() {
               onIncident={(i) => setDetail({ type: "incident", item: i })}
             />
           )}
+          {page === "flow" && <DataFlow collectors={rows} incidents={incidents} region={region} mode={mode} />}
+          {page === "analytics" && <Analytics collectors={rows} incidents={incidents.filter(i => region === "all" || i.region === region)} region={region} mode={mode} proof={proof} cpuSeries={cpuSeries} latencySeries={latencySeries} analyticsSeries={analyticsSeries} onSelectCollector={(c) => setDetail({ type: "collector", item: c })} />}
           {page === "incidents" && (
             <Incidents
               region={region}
@@ -1223,7 +1233,7 @@ function Dashboard() {
               <X size={20} />
             </button>
             <IconBox icon={Sparkles} />
-            <h2 id="guide-title">Your platform, in six views.</h2>
+            <h2 id="guide-title">Your platform, at a glance.</h2>
             <p>
               Start with fleet health, inspect an incident, check delivery
               evidence, then explain the privacy boundary.
@@ -1395,6 +1405,7 @@ export default function App() {
         incidents: live.data?.incidents ?? [],
         cpuSeries: live.data?.cpuSeries ?? [],
         latencySeries: live.data?.latencySeries ?? [],
+        analyticsSeries: live.data?.analyticsSeries ?? null,
         proof: live.data?.proof ?? null,
         status: live.status,
         error: live.error,
@@ -1407,6 +1418,7 @@ export default function App() {
         incidents: demoIncidents,
         cpuSeries: demoCpu,
         latencySeries: demoLatency,
+        analyticsSeries: null,
         proof: null,
         status: "demo",
         error: null,
