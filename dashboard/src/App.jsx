@@ -3,7 +3,6 @@ import {
   Activity,
   ArrowUpRight,
   Bell,
-  Box,
   Check,
   CheckCheck,
   ChevronDown,
@@ -949,7 +948,6 @@ export default function App() {
   const [detail, setDetail] = useState(null);
   const [toast, setToast] = useState("");
   const [help, setHelp] = useState(false);
-  const [updated, setUpdated] = useState("Not refreshed");
   useEffect(() => {
     const change = () => {
       setPage(currentPage());
@@ -1033,7 +1031,6 @@ export default function App() {
             <span className="header-environment">Observability platform</span>
           </div>
           <div className="topbar-right">
-            <span className="demo-label"><span />Demo environment</span>
             <button className="icon-button header-help" aria-label="Open demo guide" onClick={() => setHelp(true)}><CircleHelp size={18}/></button>
             <button className="icon-button notification-button" aria-label="Open incidents" onClick={() => { location.hash = "#/incidents"; }}><Bell size={18}/><i className="notification-dot" /></button>
             <span className="top-avatar" title="Team Mirai">M</span>
@@ -1087,7 +1084,6 @@ export default function App() {
                 className="icon-button refresh-button"
                 aria-label="Refresh demo snapshot"
                 onClick={() => {
-                  setUpdated(new Date().toLocaleTimeString());
                   setToast(
                     "Demo snapshot refreshed. Backend is not connected.",
                   );
@@ -1101,14 +1097,6 @@ export default function App() {
             {nav.map((n) => <a key={n.id} href={`#/${n.id}`} className={page === n.id ? 'active' : ''} aria-current={page === n.id ? 'page' : undefined}>{n.label}{n.id === 'incidents' && <span className="nav-count">{incidents.filter(i => region === 'all' || i.region === region).length}</span>}</a>)}
             <a className="nav-cta" href="#/incidents">Review incidents <span>{incidents.filter(i => region === 'all' || i.region === region).length}</span></a>
           </nav>
-          <div className="demo-strip">
-            <span>
-              <Box size={14} />
-              <strong>Demo data</strong>
-              <span>Backend not connected. Values are illustrative.</span>
-            </span>
-            <span className="snapshot-time">{updated}</span>
-          </div>
           {page === "fleet" && (
             <Fleet
               rows={rows}
