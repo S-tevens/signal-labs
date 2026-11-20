@@ -2,8 +2,9 @@
 
 Roles (least privilege first):
   viewer    reads everything in its own tenant: fleet, metrics, incidents, lineage, proof, history.
+  auditor   viewer, plus: reads the audit log. Cannot act on incidents or manage anything (for compliance and security review).
   operator  viewer, plus: asks for an AI summary, proposes simulated actions, approves and rolls them back.
-  admin     operator, plus: issues one-time collector enrollment tokens and reads the audit log.
+  admin     operator, plus: issues one-time collector enrollment tokens, reads the audit log and manages users and roles.
 
 Rules that matter:
   * Unknown roles and unknown permissions get nothing (fail closed). A misspelt role in the configuration stops the
@@ -14,13 +15,14 @@ Rules that matter:
 """
 from __future__ import annotations
 
-ROLES = ("viewer", "operator", "admin")
+ROLES = ("viewer", "auditor", "operator", "admin")
 
 _VIEWER = frozenset({"read"})
+_AUDITOR = _VIEWER | {"audit.read"}
 _OPERATOR = _VIEWER | {"ai.summary", "action.propose", "action.decide"}
-_ADMIN = _OPERATOR | {"enrollment.create", "audit.read"}
+_ADMIN = _OPERATOR | {"enrollment.create", "audit.read", "users.manage"}
 
-GRANTS: dict[str, frozenset[str]] = {"viewer": _VIEWER, "operator": _OPERATOR, "admin": _ADMIN}
+GRANTS: dict[str, frozenset[str]] = {"viewer": _VIEWER, "auditor": _AUDITOR, "operator": _OPERATOR, "admin": _ADMIN}
 
 PERMISSIONS = {
     "read": "See the fleet, metrics, incidents, evidence, lineage and proof for the tenant",
@@ -29,6 +31,7 @@ PERMISSIONS = {
     "action.decide": "Approve or roll back a simulated action",
     "enrollment.create": "Issue a one-time enrollment token for a new collector",
     "audit.read": "Read the tenant's audit log, including refused requests",
+    "users.manage": "Create users, change roles, disable accounts and reset passwords",
 }
 
 

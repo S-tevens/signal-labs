@@ -10,12 +10,14 @@ from saas.main import create_app
 from saas.store import Store
 from saas.tests.test_service import AUTH, client, db_url, get  # noqa: F401  (fixtures)
 
-TOKENS = {"viewer": "dv", "operator": "d1", "admin": "admin"}  # all in tenant t-one
+TOKENS = {"viewer": "dv", "auditor": "dau", "operator": "d1", "admin": "admin"}  # all in tenant t-one
 
 
 # ---- the matrix itself (no database) ----
 def test_each_role_includes_everything_the_one_below_it_can_do():
     assert rbac.GRANTS["viewer"] < rbac.GRANTS["operator"] < rbac.GRANTS["admin"]
+    assert rbac.GRANTS["viewer"] < rbac.GRANTS["auditor"] < rbac.GRANTS["admin"]
+    assert not rbac.GRANTS["auditor"] & {"action.propose", "action.decide", "ai.summary", "users.manage"}  # an auditor reads, never acts
 
 
 def test_unknown_roles_unknown_permissions_and_no_role_get_nothing():
@@ -39,7 +41,8 @@ def test_every_permission_the_routes_ask_for_is_defined():
 
 def test_only_admins_can_enrol_and_only_operators_and_above_can_act():
     assert [r for r in rbac.ROLES if rbac.can(r, "enrollment.create")] == ["admin"]
-    assert [r for r in rbac.ROLES if rbac.can(r, "audit.read")] == ["admin"]
+    assert [r for r in rbac.ROLES if rbac.can(r, "audit.read")] == ["auditor", "admin"]
+    assert [r for r in rbac.ROLES if rbac.can(r, "users.manage")] == ["admin"]
     assert [r for r in rbac.ROLES if rbac.can(r, "action.propose")] == ["operator", "admin"]
     assert [r for r in rbac.ROLES if rbac.can(r, "ai.summary")] == ["operator", "admin"]
 
@@ -51,14 +54,15 @@ def call(c, method, path, role, body=None):
 
 
 @pytest.mark.parametrize("method,path,body,allowed", [
-    ("GET", "/v1/fleet", None, {"viewer", "operator", "admin"}),
-    ("GET", "/v1/incidents", None, {"viewer", "operator", "admin"}),
-    ("GET", "/v1/rbac", None, {"viewer", "operator", "admin"}),
+    ("GET", "/v1/fleet", None, {"viewer", "auditor", "operator", "admin"}),
+    ("GET", "/v1/incidents", None, {"viewer", "auditor", "operator", "admin"}),
+    ("GET", "/v1/rbac", None, {"viewer", "auditor", "operator", "admin"}),
     ("POST", "/v1/actions/propose", {}, {"operator", "admin"}),
     ("POST", "/v1/actions/nope/approve", None, {"operator", "admin"}),
     ("GET", "/v1/incidents/nope/ai-summary", None, {"operator", "admin"}),
     ("POST", "/v1/enrollment-tokens", {"collector_id": "col-rbac-1"}, {"admin"}),
-    ("GET", "/v1/audit", None, {"admin"}),
+    ("GET", "/v1/audit", None, {"auditor", "admin"}),
+    ("GET", "/v1/users", None, {"admin"}),
 ])
 def test_each_route_allows_exactly_the_roles_in_the_matrix(client, method, path, body, allowed):
     for role in rbac.ROLES:

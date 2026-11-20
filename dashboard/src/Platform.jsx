@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { request, LIVE } from './api';
+import { request, LIVE, currentToken } from './api';
 
 const TYPES = ['tenant', 'collector', 'source', 'observation', 'incident', 'recommendation', 'action'];
 const labels = { restart_service: 'Restart service', isolate_source: 'Isolate source', rotate_credentials: 'Rotate credentials', scale_capacity: 'Scale capacity' };
@@ -76,13 +76,15 @@ export function HealthHistory() {
   return <section className="panel platform-panel"><h2>Health history</h2><p>Collector state changes and reasons, recorded in UTC.</p><Thresholds/>{!LIVE ? <Message>Connect the SaaS to view recorded state changes.</Message> : loading ? <Message>Loading history…</Message> : error ? <Message>History could not be loaded: {error}</Message> : rows.length ? <div className="platform-object-list">{rows.map(r => <div className="platform-history" key={r.id}><strong>{r.collector} · {r.state}</strong><span>{r.ts} · {r.reason}</span></div>)}</div> : <Message>No health transitions recorded.</Message>}</section>;
 }
 // What the signed-in role may do, from the platform's own matrix (the platform enforces it too: this only explains).
-let sessionOnce = null;
+let sessionCache = { token: null, promise: null };
 function usePermissions() {
   const [session, setSession] = useState(null);
   useEffect(() => {
     if (!LIVE) return;
-    sessionOnce = sessionOnce || request('/v1/session').catch(() => null);
-    sessionOnce.then(setSession);
+    // One request per sign-in, shared by every button; a different person signing in gets their own answer.
+    const token = currentToken();
+    if (sessionCache.token !== token) sessionCache = { token, promise: request('/v1/session').catch(() => null) };
+    sessionCache.promise.then(setSession);
   }, []);
   const can = (permission) => !LIVE || !session || (session.permissions || []).includes(permission);
   return { role: session?.role, can, why: (permission) => (can(permission) ? undefined : `Your role (${session?.role}) cannot do this. It needs the ${permission} permission.`) };
