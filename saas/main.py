@@ -28,15 +28,35 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
                 try: await asyncio.to_thread(run)
                 except Exception: logging.exception("Watchdog database operation failed")
             await asyncio.sleep(1)
+    # Each replica listens to committed database changes, then wakes only streams
+    # for the affected tenant. A periodic snapshot covers listener reconnects.
+    condition=asyncio.Condition(); versions={}; listener_ready=asyncio.Event()
+    async def listen_updates():
+        import psycopg
+        while True:
+            try:
+                async with await psycopg.AsyncConnection.connect(store.url,autocommit=True,connect_timeout=5) as conn:
+                    await conn.execute('LISTEN signal_dashboard_updates')
+                    listener_ready.set()
+                    async for notification in conn.notifies():
+                        async with condition:
+                            tenant=notification.payload
+                            versions[tenant]=versions.get(tenant,0)+1
+                            condition.notify_all()
+            except asyncio.CancelledError: raise
+            except Exception:
+                logging.exception('Dashboard notification listener disconnected; reconnecting')
+                await asyncio.sleep(2)
     @asynccontextmanager
     async def lifespan(app):
         await asyncio.to_thread(store.check)
-        task=asyncio.create_task(watchdog())
-        try: yield
+        tasks=[asyncio.create_task(watchdog()),asyncio.create_task(listen_updates())]
+        try:
+            await asyncio.wait_for(listener_ready.wait(),timeout=8)
+            yield
         finally:
-            task.cancel()
-            try: await task
-            except asyncio.CancelledError: pass
+            for task in tasks: task.cancel()
+            await asyncio.gather(*tasks,return_exceptions=True)
     app=FastAPI(title='Secure AIOps SaaS',lifespan=lifespan)
     origins=os.getenv('DASHBOARD_ORIGINS','http://localhost:5173').split(',')
     app.add_middleware(CORSMiddleware,allow_origins=origins,allow_methods=['GET','POST'],allow_headers=['Authorization','Content-Type'])
@@ -211,7 +231,11 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
                 return {'fleet':[{k:v for k,v in r.items() if k!="tenant_id"} for r in db.execute('SELECT * FROM fleet')],'incidents':[json.loads(r['data']) for r in db.execute('SELECT data FROM incidents ORDER BY last_ts DESC LIMIT 100')],'metrics':[json.loads(r['data']) for r in db.execute('SELECT data FROM payloads WHERE metric IS NOT NULL ORDER BY ts DESC LIMIT 100')]}
         async def generate():
             while not await request.is_disconnected():
-                yield 'event: snapshot\ndata: '+dump(await asyncio.to_thread(snapshot))+'\n\n'; await asyncio.sleep(2)
+                async with condition: version=versions.get(who.tenant,0)
+                yield 'event: snapshot\ndata: '+dump(await asyncio.to_thread(snapshot))+'\n\n'
+                async with condition:
+                    try: await asyncio.wait_for(condition.wait_for(lambda: versions.get(who.tenant,0)!=version),timeout=15)
+                    except asyncio.TimeoutError: pass
         return StreamingResponse(generate(),media_type='text/event-stream',headers={'Cache-Control':'no-cache','X-Accel-Buffering':'no'})
     return app
 app=create_app()

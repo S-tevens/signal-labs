@@ -44,4 +44,4 @@ def state(db,collector,new,reason,now):
     row=db.execute('SELECT state FROM fleet WHERE id=?',(collector,)).fetchone()
     if row and row['state']!=new:
         db.execute('UPDATE fleet SET state=?,reason=? WHERE id=?',(new,reason,collector)); db.execute('INSERT INTO health_history(collector,state,reason,ts) VALUES(?,?,?,?)',(collector,new,reason,utc(now)))
-    elif row: db.execute('UPDATE fleet SET reason=? WHERE id=?',(reason,collector))
+    elif row: db.execute('UPDATE fleet SET reason=? WHERE id=? AND reason IS DISTINCT FROM ?',(reason,collector,reason))
