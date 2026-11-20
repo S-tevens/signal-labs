@@ -71,10 +71,10 @@ The timeline is steady traffic, a CPU spike at 90 s, a latency spike at 150 s, a
 
 | Target | Measured as | Latest result |
 |---|---|---|
-| Collection to dashboard, p95 at most 10 s | Clock starts at the earliest record the window could hold (the strict reading). The dashboard path does what the real dashboard does when a snapshot arrives: fetch fleet, incidents, proof and four metric series | 5.95 s (n=90) on `realtime`; 10 to 11 s on `default` |
-| Alert at most 15 s | Inject a spike on a unique host, time to the incident: 99% CPU (hard threshold) and 70% CPU (deviation from baseline) | 3.6 s and 6.6 s |
-| Offline at most 60 s | Kill the collector, time from its **last heartbeat** to state Poor | 60.2 s with the platform's old threshold (a miss by 0.2 s); the platform now sets `offline_after_s: 40`, re-measure before quoting |
-| Zero loss and duplicates | Force an outage, compare the collector's created IDs with the platform's stored IDs, and check for repeated IDs independently (the platform's own duplicate counter is a constant 0) | 0 missing, 0 duplicates, replay in about 6 s |
+| Collection to dashboard, p95 at most 10 s | Clock starts at the earliest record the window could hold (the strict reading). The dashboard path does what the real dashboard does when a snapshot arrives: fetch fleet, incidents, proof and four metric series | 6.13 s (n=90) on `realtime` (latest run); 10 to 11 s on `default` |
+| Alert at most 15 s | Inject a spike on a unique host, time to the incident: 99% CPU (hard threshold) and 70% CPU (deviation from baseline) | 5.7 s and 6.2 s (latest run) |
+| Offline at most 60 s | Kill the collector, time from its **last heartbeat** to state Poor | 40.26 s with `offline_after_s: 40` (it was 60.2 s, a 0.2 s miss, at the old 60 s setting) |
+| Zero loss and duplicates | Force an outage, compare the collector's created IDs with the platform's stored IDs, and check for repeated IDs independently (the platform's own duplicate counter is a constant 0) | 133 created, 0 missing, 0 duplicates, replay in about 5.5 s |
 
 All of it is on one machine and one clock. Full runs and caveats: [evidence/SUMMARY.md](evidence/SUMMARY.md). The rehearsal and proof runs sit next to it as `rehearsal-*.md` and `verify-*.md`.
 
