@@ -94,3 +94,21 @@ def test_the_key_can_come_from_the_environment_or_a_file(monkeypatch, tmp_path):
     assert llm.load_key() == "from-file"
     monkeypatch.setenv("GEMINI_API_KEY", "from-env")
     assert llm.load_key() == "from-env"
+
+
+def test_an_overloaded_model_falls_back_to_the_next_one():
+    tried = []
+
+    def handler(request):
+        model = str(request.url).split("/models/")[1].split(":")[0]
+        tried.append(model)
+        return httpx.Response(503, text="busy") if len(tried) == 1 else ok(request)
+
+    r = engine(handler).explain(INCIDENT)
+    assert r["available"] and len(tried) == 2 and tried[0] != tried[1] and r["model"] == tried[1]
+
+
+def test_a_bad_request_does_not_burn_through_the_fallbacks():
+    tried = []
+    r = engine(lambda req: (tried.append(1), httpx.Response(400, text="bad"))[1]).explain(INCIDENT)
+    assert r["available"] is False and len(tried) == 1 and "400" in r["reason"]
