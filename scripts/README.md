@@ -5,6 +5,7 @@ Everything runs locally on Windows PowerShell with dev credentials. No Docker.
 | Script | What it does |
 |---|---|
 | `run-local.ps1` | Starts Postgres (port 5433), runs the migration, then two SaaS replicas, the collector, the simulator and the dashboard. Flags: `-Tls`, `-Profile default|realtime`, `-NoSimulator`, `-NoHostTelemetry`, `-NoProxy`, `-NoDashboard`, `-Restart`, `-Status` |
+| `trace.ps1` | Traces one payload from the raw record through the outgoing payload and the platform's stored copy to its incident and recommendation. PASS or FAIL per hop, secrets masked |
 | `rehearse.ps1` | Runs every scenario and the proof checks in judge order with pauses, and writes a pass/fail table with timestamps. See [Rehearsal](#rehearsal) |
 | `open-demo.ps1` | Opens the egress panel and the dashboard side by side |
 | `verify.ps1` | Proof tools: the egress log equals what the SaaS stored, and planted canary secrets appear nowhere on the platform. PASS or FAIL. See [Proving the privacy claim](#proving-the-privacy-claim) |
