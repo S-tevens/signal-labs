@@ -44,6 +44,8 @@ Each prints what to expect, waits for windows to close and shows the platform's 
 
 The collector's own `health_state` on each payload follows the platform's thresholds (`collector/health.yaml`, with a test that fails if the two drift): a 97% CPU payload is `Poor`, a 35% one `Excellent`.
 
+Rehearse them with expected versus actual results: `.\scripts\scenario-check.ps1` (about 2.5 minutes). It writes the expected result first, runs a normal baseline on decoy hosts and seven scenarios in parallel on separate hosts (CPU spike, baseline deviation at 70% CPU, latency, packet loss, disk fill, failed logins, alert storm), then counts missed, extra and false alerts with the window and denominator stated. Latest run: 7 of 7 PASS, first alerts 2.4 to 6.4 s, the alert storm grouped 40 alerts into 1 incident, 0 false alarms over about 1,860 normal metric-windows (small and simulated, so not a general false-alarm rate). Evidence: `docs\p3\evidence\scenarios-*.md`.
+
 ## 3. Reliability
 
 ```
