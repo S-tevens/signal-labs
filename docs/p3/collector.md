@@ -62,7 +62,7 @@ Expected: `outage` ends with zero missing and zero duplicates; `delivery` shows 
 
 ## 4. Bringing in the organizers' stream
 
-The event-day procedure, with the question to ask them and the settings for each way of receiving a stream, is in [organizer-stream.md](organizer-stream.md). `.\scripts\stream-check.ps1 sample.txt` judges a sample in seconds, and `.\scripts\demo.ps1 stream` shows the pull path end to end with a stand-in feed.
+The organizers push the stream to us; the interface and the token are in [push-interface.md](push-interface.md) (`.\scripts\run-local.ps1 -AcceptPush`, then `.\scripts\push-info.ps1`). The event-day procedure, with the question to ask them and the settings for each way of receiving a stream, is in [organizer-stream.md](organizer-stream.md). `.\scripts\stream-check.ps1 sample.txt` judges a sample in seconds, and `.\scripts\demo.ps1 stream` shows the pull path end to end with a stand-in feed.
 
 Formats: NDJSON, key=value, RFC3164 syslog, CSV with a header, plain text. Extra inputs (off by default, bind to this machine): `UDP_SYSLOG_PORT`, `TCP_LINES_PORT`, `FOLLOW_FILES`. A new field naming, unit or time format is handled in `collector/mapping.yaml`, not code. Unknown fields are dropped before the pipeline.
 

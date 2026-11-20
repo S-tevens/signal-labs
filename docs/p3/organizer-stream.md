@@ -9,6 +9,10 @@ This is all we have been given: (1) the traffic format can be anything, so that 
 - **"Any format"**: the collector does not assume one. It reads NDJSON, flat and nested JSON (Elastic, OpenTelemetry, Telegraf and Datadog shapes, lists of `{name, value}` objects), key=value, RFC3164 and RFC5424 syslog, CSV with a header, Prometheus text, InfluxDB line protocol and plain text, with names, units and times set in `collector/mapping.yaml` rather than in code. Anything it cannot map is dropped before the pipeline and counted, never guessed.
 - **"Uniform, central, highly available SaaS"**: one entry point (a failover proxy) in front of two stateless replicas sharing one Postgres, with row-level tenant isolation and idempotent ingest. Killing a replica loses nothing (`demo.ps1 failover`). It is a single-machine demonstration of the design, not a multi-site deployment.
 
+## Decided: the stream is pushed to us, and we chose the interface
+
+The organizers confirmed they push the stream to us and said to use whatever is most fitting. So we define the interface: HTTP POST in any format as the main route, plus InfluxDB line protocol (Telegraf), OpenTelemetry JSON and syslog for the tools they might already run. Start the collector with `.\scripts\run-local.ps1 -AcceptPush`, run `.\scripts\push-info.ps1` for the addresses and token, and hand over [push-interface.md](push-interface.md). `.\scripts\demo.ps1 push` proves it from the network side (12 checks). The pull settings below are for a case where they change their mind.
+
 ## What to get from the organizers (one question)
 
 "How do we receive the stream: do you push it to us, or do we connect to you? Give us the address, any token or key, and about 30 sample lines." Then:

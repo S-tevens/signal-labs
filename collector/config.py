@@ -108,6 +108,9 @@ class Config:
     tcp_lines_port: int = field(default_factory=lambda: int(os.getenv("TCP_LINES_PORT", "0")))
     follow_files: str = field(default_factory=lambda: os.getenv("FOLLOW_FILES", ""))  # comma-separated paths
     follow_from_start: bool = field(default_factory=lambda: os.getenv("FOLLOW_FROM_START", "0") == "1")
+    # Push gateway (collector/push.py): who may send to this collector. The token is a secret.
+    ingest_token: str = field(default_factory=lambda: os.getenv("INGEST_TOKEN", ""))
+    ingest_allow: str = field(default_factory=lambda: os.getenv("INGEST_ALLOW", ""))
     # Pull inputs: connect OUT to a stream (see collector/pull.py). The auth value is a secret: never logged or shown.
     stream_url: str = field(default_factory=lambda: os.getenv("STREAM_URL", ""))
     stream_poll_s: float = field(default_factory=lambda: float(os.getenv("STREAM_POLL_S", "0")))

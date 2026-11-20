@@ -31,6 +31,11 @@ metrics:
   used_percent: mem_pct
   system.cpu.user: cpu_pct
   system.mem.pct_usable: {name: mem_pct, scale: -100, offset: 100}
+  # OpenTelemetry semantic conventions (ratios 0..1, durations in seconds)
+  system.cpu.utilization: {name: cpu_pct, scale: 100}
+  system.memory.utilization: {name: mem_pct, scale: 100}
+  system.filesystem.utilization: {name: disk_pct, scale: 100}
+  http.server.request.duration: {name: latency_ms, scale: 1000}
   # common latency and loss names
   http.server.duration: latency_ms
   ping_average_response_ms: latency_ms

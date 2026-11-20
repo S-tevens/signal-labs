@@ -453,6 +453,61 @@ def stream():
     print("  RESULT:", "PASS" if all(results) else "FAIL", f"({sum(results)} of {len(results)} checks)")
 
 
+def push():
+    """Push to the collector the way the organizers would: through its network address, with the token, in several formats."""
+    expect("pushing needs the token; each interface works; the local views stay closed to the network; nothing sensitive leaves")
+    import gzip
+    import socket
+
+    token_file = Path(__file__).resolve().parents[1] / "data" / "ingest.token"
+    if not token_file.exists():
+        print("  Start the collector for pushing first:  scripts\\run-local.ps1 -Restart -AcceptPush")
+        return
+    token = token_file.read_text(encoding="ascii").strip()
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("10.255.255.255", 1))
+        lan = probe.getsockname()[0]
+    except OSError:
+        lan = "127.0.0.1"
+    finally:
+        probe.close()
+    base = f"http://{lan}:8101"
+    results = []
+
+    def check(name, ok, detail=""):
+        results.append(ok)
+        print(f"  {'PASS' if ok else 'FAIL'}: {name}" + (f"  [{detail}]" if detail else ""))
+
+    def post(path, data, headers=None, auth=True):
+        h = {"Authorization": f"Bearer {token}"} if auth else {}
+        return _call(f"{base}{path}", data if isinstance(data, bytes) else data.encode(), {**h, **(headers or {})}, "POST")
+
+    print(f"  pushing to {base} (this machine's network address)")
+    host, now = f"push-{uuid.uuid4().hex[:6]}", int(time.time())
+    check("no token is refused (401)", post("/ingest", "x", auth=False)[0] == 401)
+    check("a wrong token is refused (401)", post("/ingest", "x", {"Authorization": "Bearer nope"}, auth=False)[0] == 401)
+    check("the local views are closed to the network even with the token (403)", _call(f"{base}/local/raw", headers={"Authorization": f"Bearer {token}"})[0] == 403 or lan == "127.0.0.1")
+    check("HTTP lines are accepted", post("/ingest", f"ts={now} host={host} metric=cpu_pct value=41")[0] == 200)
+    check("a JSON array is accepted", post("/ingest", json.dumps([{"ts": now, "host": host, "metric": "mem_pct", "value": 52}, {"ts": now, "host": host, "metric": "disk_pct", "value": 63}]))[0] == 200)
+    check("gzip is accepted", post("/ingest", gzip.compress(f"ts={now} host={host} metric=latency_ms value=74".encode()), {"Content-Encoding": "gzip"})[0] == 200)
+    check("InfluxDB line protocol (Telegraf) answers 204", post("/write?db=telegraf", f"cpu,host={host} usage_user=85 {now * 10**9}")[0] == 204)
+    otlp = {"resourceMetrics": [{"resource": {"attributes": [{"key": "host.name", "value": {"stringValue": host}}]}, "scopeMetrics": [{"metrics": [
+        {"name": "system.memory.utilization", "gauge": {"dataPoints": [{"asDouble": 0.91, "timeUnixNano": str(now * 10**9)}]}}]}]}]}
+    check("OpenTelemetry JSON metrics are accepted", post("/v1/metrics", json.dumps(otlp), {"Content-Type": "application/json"})[0] == 200)
+    check("a secret pushed with the data is accepted and kept local", post("/ingest", f'ts={now} host={host} msg="login ok user=alice@corp.com password=Hunter2! token=abc123def456"')[0] == 200)
+    time.sleep(WINDOW + 5)
+    egress = _call(f"http://127.0.0.1:8101/local/egress?limit=400")[1] or []
+    blob = json.dumps(egress)
+    names = {e["payload"]["metric"]["name"] for e in egress if "metric" in e["payload"]}
+    check("every format became standard metrics", {"cpu_pct", "mem_pct", "disk_pct", "latency_ms"} <= names, ", ".join(sorted(names)))
+    check("the secrets never left", not any(x in blob for x in ("Hunter2", "alice@corp.com", "abc123def456", host)))
+    ids = [e["payload_id"] for e in egress if e["status"] == "sent" and "metric" in e["payload"]][:5]
+    found = [i for i in ids if _call(f"{SAAS}/v1/objects/observation/{i}", headers={"Authorization": f"Bearer {DASH}"})[0] == 200]
+    check("the platform stored what was sent", bool(ids) and len(found) == len(ids), f"{len(found)} of {len(ids)} checked")
+    print("  RESULT:", "PASS" if all(results) else "FAIL", f"({sum(results)} of {len(results)} checks)")
+
+
 def failed_logins():
     expect("one auth_failure_burst event (count=30, critical) and no raw login records exported")
     collector_send(failed_login_lines("web-1", 30))
@@ -818,6 +873,7 @@ SCENARIOS = {
     "tenants": tenants,
     "rbac": rbac,
     "stream": stream,
+    "push": push,
 }
 
 

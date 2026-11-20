@@ -5,6 +5,7 @@ Everything runs locally on Windows PowerShell with dev credentials. No Docker.
 | Script | What it does |
 |---|---|
 | `run-local.ps1` | Starts Postgres (port 5433), runs the migration, then two SaaS replicas, the collector, the simulator and the dashboard. Flags: `-Tls`, `-Profile default|realtime`, `-NoSimulator`, `-NoHostTelemetry`, `-NoProxy`, `-NoDashboard`, `-Restart`, `-Status` |
+| `push-info.ps1` | Prints the addresses and token to hand the organizers so they can push their stream (start the collector with `run-local.ps1 -AcceptPush` first). See [../docs/p3/push-interface.md](../docs/p3/push-interface.md) |
 | `stream-check.ps1` | Dry-runs a sample of the organizers' stream through the collector's parsers and mapping and tells you what to map (nothing is sent). See [../docs/p3/organizer-stream.md](../docs/p3/organizer-stream.md) |
 | `recover.ps1` | Checks the whole stack and fixes a link left down or a hold left on; `-Restart` restarts it. See [../docs/p4/demo-runbook.md](../docs/p4/demo-runbook.md) |
 | `bundle-evidence.ps1` | Zips the evidence, guides, settings and the commit into `data\evidence-bundle-<time>.zip`, refusing if anything looks like a credential |
@@ -203,13 +204,14 @@ eplay.py play simulator	imelines\demo.json [--speed 5]` plays a scripted five-mi
 
 ## Scenarios
 
-`enroll`, `flood`, `failover`, `tls`, `secret`, `hold`, `tenants`, `rbac`, `stream`, `failed-logins`, `cpu-spike`, `latency`, `packet-loss`, `disk`, `alert-storm`, `outage`, `delivery`, `remediation`.
+`enroll`, `flood`, `failover`, `tls`, `secret`, `hold`, `tenants`, `rbac`, `stream`, `push`, `failed-logins`, `cpu-spike`, `latency`, `packet-loss`, `disk`, `alert-storm`, `outage`, `delivery`, `remediation`.
 
 - Run `python simulator\generator.py --seconds 120` (or leave `run-local.ps1`'s simulator running) first, so the SaaS has a baseline.
 - `outage` cuts the collector's link, buffers, reconnects and then proves zero loss by comparing payload ID sets.
 - `delivery` posts a duplicate, an out-of-order event and a same-ID-different-body payload straight to the SaaS.
 - `enroll` has an admin issue a one-time token, starts a brand-new collector (port 8102, no keys configured) that enrolls itself and starts reporting, shows the platform seeing it online, and shows the same token refused a second time. Needs the stack from `run-local.ps1` (it includes a dev admin token); use `-Tls` so the token and credentials travel encrypted.
 - `flood` starts a collector (port 8103) with tight limits and no reachable platform, sends 40,000 lines, an oversize line and a 3 MiB request, then shows the caps holding, the counted losses and the loss event.
+- `push` pushes to the collector through this machine's network address the way the organizers would: token required, HTTP lines, a JSON array, gzip, Telegraf's InfluxDB output, OpenTelemetry JSON, a secret kept local, delivery to the platform (12 checks). Needs `run-local.ps1 -AcceptPush`.
 - `stream` stands in for the organizers: a mock authenticated feed in an unfamiliar format, pulled by a second collector (port 8104), checked from connection to the stored payload (7 checks).
 - `rbac` checks role-based access on the live platform with real sign-ins (admin, operator, viewer and auditor from `data\dev-users.txt`): 28 checks, including a role changed live, a lockout and reset, the last-administrator guard and that refusals are audited with names. See [../docs/p4/security.md](../docs/p4/security.md).
 - `tenants` uses a second dev tenant (`t-globex`, key `key-globex-1`, dashboard token `dash-globex`) to check: each token sees only its own fleet, observations and metrics; a cross-tenant object fetch is 404; a payload naming the other tenant or signed with its key is refused; and an extra field, a secret-like summary, an unknown metric and a non-UTC time are each rejected with the platform's reason. Prints PASS or FAIL per check.
