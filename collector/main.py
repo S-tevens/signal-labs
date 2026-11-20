@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -17,6 +18,15 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
     pipeline = Pipeline(cfg, store)
     sender = Sender(cfg, store)
 
+    host_source = None
+    if cfg.host_telemetry:
+        try:
+            from .sources.host import HostSource
+
+            host_source = HostSource(cfg, pipeline)
+        except ImportError:
+            logging.getLogger("collector").warning("psutil is not installed: host telemetry is disabled")
+
     async def flusher() -> None:
         # Close finished windows on a timer, so a quiet source still reports.
         while True:
@@ -26,6 +36,8 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         tasks = [asyncio.create_task(flusher())]
+        if host_source is not None:
+            tasks.append(asyncio.create_task(host_source.run()))
         if run_sender:
             tasks.append(asyncio.create_task(sender.run()))
         try:
@@ -60,6 +72,13 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
     def local_pipeline():
         return {"counters": dict(pipeline.counters), "open_windows": pipeline.agg.open_windows(), "window_s": cfg.window_s}
 
+    @app.get("/local/host")
+    def local_host():
+        """What this collector is measuring on its own machine (local view: real host and target names)."""
+        if host_source is None:
+            return {"enabled": False}
+        return {"enabled": True, **host_source.status()}
+
     @app.get("/local/raw")
     def local_raw(limit: int = 50):
         return store.recent_raw(limit)
@@ -72,6 +91,7 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
     def local_buffer():
         return {
             "link": "up" if sender.link_up else "down",
+            "transport": sender.transport,
             "pending": store.depth(),
             "counts": store.counts(),
             "last_send_utc": sender.last_send_utc,

@@ -22,6 +22,7 @@ import hashlib
 import hmac
 import json
 import os
+import ssl
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -36,10 +37,20 @@ WINDOW = 5  # must match the collector's WINDOW_S
 
 
 # ---------- plumbing ----------
+SAAS_CA = os.getenv("SAAS_CA_FILE", "")  # set by demo.ps1 when the stack runs with -Tls
+
+
+def _ctx(url):
+    """HTTPS always verifies; with SAAS_CA_FILE set, only that CA is trusted."""
+    if not url.startswith("https://"):
+        return None
+    return ssl.create_default_context(cafile=SAAS_CA or None)
+
+
 def _call(url, data=None, headers=None, method=None):
     req = request.Request(url, data=data, headers=headers or {}, method=method or ("POST" if data is not None else "GET"))
     try:
-        with request.urlopen(req, timeout=10) as r:
+        with request.urlopen(req, timeout=10, context=_ctx(url)) as r:
             body = r.read().decode()
             return r.status, (json.loads(body) if body else None)
     except error.HTTPError as e:
@@ -256,7 +267,40 @@ def remediation():
     print("  ", json.dumps(res, indent=2) if isinstance(res, dict) else res)
 
 
+def tls():
+    expect("plain HTTP is refused; HTTPS with our CA works; any other CA is rejected; a tampered body is a 401")
+    if not SAAS.startswith("https://"):
+        print("  The SaaS is not on https. Start the stack with:  .\\scripts\\run-local.ps1 -Tls")
+        return
+    plain = "http://" + SAAS[len("https://"):]
+    try:
+        request.urlopen(plain + "/healthz", timeout=5)
+        print("  1. plain HTTP to the TLS port: ANSWERED  <- BAD")
+    except Exception as e:  # the TLS server cannot speak HTTP: it resets or closes the connection
+        print(f"  1. plain HTTP to the TLS port: REFUSED ({type(e).__name__})")
+
+    status, body = _call(f"{SAAS}/healthz")
+    print(f"  2. HTTPS with the dev CA: HTTP {status} {body}")
+
+    try:
+        request.urlopen(f"{SAAS}/healthz", timeout=5, context=ssl.create_default_context())  # system trust store only
+        print("  3. HTTPS trusting only the system store: ACCEPTED  <- BAD")
+    except Exception as e:
+        reason = getattr(e, "reason", e)
+        print(f"  3. HTTPS trusting a different CA (the system store): REJECTED ({type(reason).__name__}: certificate not trusted)")
+
+    original = b'[{"payload_id":"x"}]'
+    sig = hmac.new(SECRET.encode(), original, hashlib.sha256).hexdigest()
+    status, _ = _call(f"{SAAS}/v1/ingest", original.replace(b'"x"', b'"y"'), {"X-Collector-Key": KEY, "X-Signature": sig, "Content-Type": "application/json"})
+    print(f"  4. body changed after signing: HTTP {status}  " + ("(rejected as expected)" if status == 401 else "<- BAD, expected 401"))
+
+    buf = _call(f"{COLLECTOR}/local/buffer")[1]
+    if isinstance(buf, dict):
+        print(f"  5. collector transport: {buf.get('transport')} | pending={buf.get('pending')} | last_error={buf.get('last_error')}")
+
+
 SCENARIOS = {
+    "tls": tls,
     "secret": secret,
     "outage": outage,
     "failed-logins": failed_logins,

@@ -19,6 +19,7 @@ if (Test-Path $pidFile) {
     }
   }
   Remove-Item $pidFile -Force
+  Remove-Item (Join-Path $root "data\run.tls") -Force -ErrorAction SilentlyContinue
 } else {
   Write-Host "No saved process list; nothing to stop."
 }

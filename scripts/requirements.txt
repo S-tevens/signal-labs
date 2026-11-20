@@ -1,0 +1,2 @@
+# Only needed for development tooling, not by the collector or SaaS at runtime.
+cryptography>=42   # collector/devcerts.py (dev TLS certificates) and the TLS tests
