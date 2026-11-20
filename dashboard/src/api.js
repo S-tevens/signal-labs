@@ -156,6 +156,10 @@ async function snapshot(signal) {
     incidents: incidents.map((i) => mapIncident(i, regionOf)),
     cpuSeries: series(metricsByName.cpu_pct),
     latencySeries: series(metricsByName.latency_ms),
+    analyticsSeries: Object.fromEntries(["in", "eu", "all"].map((region) => [region, {
+      cpu: series(metricsByName.cpu_pct.filter((m) => region === "all" || m.region === region)),
+      latency: series(metricsByName.latency_ms.filter((m) => region === "all" || m.region === region)),
+    }])),
     proof,
     newest,
   };
