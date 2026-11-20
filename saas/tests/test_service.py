@@ -225,3 +225,21 @@ def test_proof_window_filters_old_receipts(client):
     assert window['window_s']==300 and window['window_start_utc']
     assert get(client,'/v1/proof?window_s=10').status_code==422
     assert set(get(client,'/v1/proof').json()['received_ids'])=={pid('old-receipt'),pid('recent-receipt')}
+
+
+def test_edge_aggregation_to_saas_incident_and_lineage(client):
+    from collector.config import Config
+    from collector.outbox import LocalStore
+    from collector.pipeline import Pipeline
+    local=LocalStore(':memory:')
+    pipeline=Pipeline(Config(data_dir=':memory:',tenant_ref='t-one',collector_id='col-one',region='in',burst_threshold=5),local)
+    for _ in range(6):
+        pipeline.process('Nov 20 09:16:01 web-1 sshd[88]: Failed password for root from 203.0.113.1')
+    pipeline.flush(force=True)
+    outgoing=local.pending(50)
+    assert len(outgoing)==1 and outgoing[0]['event']['count']==6
+    assert '203.0.113.1' not in json.dumps(outgoing) and 'root' not in json.dumps(outgoing)
+    assert post(client,outgoing).json()['accepted']==[outgoing[0]['payload_id']]
+    incident=get(client,'/v1/incidents').json()[0]
+    assert incident['signals'][0]['signal']=='failed_login'
+    assert get(client,f"/v1/lineage/incident/{incident['id']}").json()['payload_ids']==[outgoing[0]['payload_id']]

@@ -27,7 +27,7 @@ flowchart LR
   UI -->|client render acknowledgement| I
 ```
 
-The boundary is crossed only by an allow-listed payload. The edge-owned sender must verify TLS; local HTTP is currently development only. TLS certificates, local aggregation/analysis, policy enforcement and real egress proof remain Member 1 integration work. The current central code does not receive local raw records.
+The boundary is crossed only by an allow-listed payload. The edge-owned sender must verify TLS; local HTTP is currently development only. The edge branch includes local aggregation/analysis and policy code, which still needs joint end-to-end validation. TLS certificates and real egress proof remain Member 1 integration work. The current central code does not receive local raw records.
 
 A regional endpoint uses its own database, with a one-region database binding on startup. Two replicas within a region can share that database and tenant-scoped transactions; separate databases are needed for separate regions. The first replica binds an empty database to its configured region; deployment must verify the intended region before startup. This does not establish geographic residency by itself. A single regional database is a failure point. A failover proxy and real failover measurements are pending; no throughput guarantee is claimed.
 

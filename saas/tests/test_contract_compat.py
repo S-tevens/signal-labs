@@ -23,3 +23,22 @@ def test_saas_rejects_schema_forbidden_and_semantically_invalid():
     mismatch={**BASE,'metric':{'name':'cpu_pct','value':32.0,'unit':'ms'}}
     with pytest.raises(ValidationError): EdgePayload.model_validate(mismatch)
     with pytest.raises(ValidationError): SaasPayload.model_validate(validate_contract(mismatch))
+
+
+def test_actual_edge_aggregates_pass_the_full_saas_contract():
+    from collector.config import Config
+    from collector.outbox import LocalStore
+    from collector.pipeline import Pipeline
+    store = LocalStore(':memory:')
+    pipeline = Pipeline(Config(data_dir=':memory:'), store)
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    entries = [json.dumps({'kind':'metric','ts':now,'tz':'Asia/Kolkata','host':'web-1','name':'cpu_pct','value':30}),
+               f'ts={now} host=router-1 metric=latency_ms value=120.5',
+               'Nov 20 09:15:01 web-1 sshd[88]: Failed password for root from 10.2.4.7']
+    for line in entries:
+        assert pipeline.process(line)['status'] == 'aggregated'
+    pipeline.flush(force=True)
+    outgoing = store.pending(50)
+    assert outgoing
+    for payload in outgoing:
+        assert SaasPayload.model_validate(validate_contract(payload))
