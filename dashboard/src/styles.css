@@ -2751,3 +2751,9 @@ footer { color: #a1aab2; }
 .row-offline .badge, .row-offline .state-badge { filter: saturate(.6); }
 tr:focus-visible, .row-offline:focus-visible { outline: 2px solid #2863ed; outline-offset: -2px; }
 small { font-variant-numeric: tabular-nums; }
+
+/* Collector status wheel */
+.status-wheel { display: block; width: 100%; max-width: 300px; margin: 10px auto 4px; }
+.status-wheel .wheel-count { font-size: 30px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.status-wheel .wheel-name { font-size: 11.5px; font-weight: 500; }
+.fleet-status-hero { min-height: 0; }
