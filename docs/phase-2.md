@@ -1,5 +1,11 @@
 # Phase 2 — Architecture & Technical Design: status, Foundry-inspired design, and work split
 
+## Platform branch update
+
+On `platform/phase2`, Member 2 has added contract validation, tenant-scoped ontology and lineage, simulated actions with audit, one-time enrollment, two-window baseline persistence, a noise endpoint, region-bound databases, dashboard object/history/action views, authenticated SSE updates, and a recent proof window. Local integration tests cover two synthetic regions; the CI workflow provisions both. A small load smoke measurement and its limits are documented in [platform design](p2/saas.md).
+
+The checklist below records the earlier assessment of `main` and is historical until this branch is merged. Full TLS, collector enrollment client, collector policy/aggregation, real egress panel, failover proxy, host telemetry, organizer-stream demo, team names and confirmed checkpoint times still need edge/team integration. Regional databases alone do not prove geographic residency. The action system is simulated; the HMAC secret is stored in the tenant-scoped database and needs managed encryption and rotation for production. The original 100-signal retention limit applies to lineage.
+
 Status as of the last merge to `main`. "Verified" means we ran it; "design only" means it is described but not built.
 Two people share the work: **Member 1 (Edge)** owns everything inside the customer environment and the way the system is run and demonstrated; **Member 2 (Platform)** owns the central SaaS and everything the judges see on the dashboard. Put your names next to these in section 4.
 

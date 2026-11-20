@@ -1,3 +1,5 @@
+> Historical Phase 1 planning document. Packaging and ownership have changed; use `README.md` for the native run instructions and `docs/phase-2.md` for the current team split. Earlier load-balancer and packaging ideas below are historical proposals, not available run commands.
+
 # Phase 1 — Team Work Split (3 members, minimal merge conflicts)
 
 Goal: finish the Phase 1 deliverables **and** lay the scaffold for the build, with every person working in files nobody else touches.
@@ -27,12 +29,12 @@ Names: replace **Member A / B / C** with real names in the table below.
 | `simulator/**` | C | stream generator and scenario injectors |
 | `scripts/**` | C | demo scripts |
 | `deploy/**` | C | load balancer config, install and enrollment scripts, CI workflow (A and B tell C what their services need) |
-| `docker-compose.yml`, `.env.example` | C | A and B send their service settings to C, or add a `compose.<name>.yml` fragment in their own folder |
+| `scripts/`, `.env.example` | Edge owner | Coordinate native launch settings with the platform owner |
 | `docs/p1/story-and-plan.md` | C | |
 | `docs/phase-1.md` (this file), `README.md`, `starter.md` | C | others suggest edits in chat |
 | `docs/phase1.md` | C | existing combined draft; split content into the three `docs/p1/` files, then keep it as the summary |
 
-**Never shared:** no one edits `README.md`, `docker-compose.yml`, or the root-level config files unless they own them. Each package keeps its **own** dependency file (`collector/requirements.txt`, `saas/requirements.txt`, `dashboard/package.json`), so there is no shared lock file to collide on.
+**Never shared:** no one edits `README.md` or root-level config files unless they own them. Each package keeps its **own** dependency file (`collector/requirements.txt`, `saas/requirements.txt`, `dashboard/package.json`), so there is no shared lock file to collide on.
 
 ---
 
@@ -65,7 +67,7 @@ Fields: `payload_id, tenant_ref, collector_id, source_id, region, event_ts_utc, 
 | SaaS replica 1 | 8000 | B |
 | SaaS replica 2 | 8001 | B |
 | Load balancer (the one SaaS URL collectors use) | 8080 | C |
-| Postgres | 5432 | C (compose), B (schema) |
+| Postgres | 5432 | Edge (local setup), Platform (schema) |
 | Dashboard dev server | 5173 | C |
 
 ### 3.3 SaaS API (B implements, A and C consume) — `contracts/api.md`
@@ -138,7 +140,7 @@ Starting material for all of it is already in [phase1.md](phase1.md); copy the r
 **Contract (hour 0–1):** draft `contracts/payload.schema.json` and the collector parts of `contracts/api.md`; hand to B for approval.
 
 **Scaffold (hours 1–2), only inside `collector/`:**
-- `collector/main.py` (FastAPI app), `requirements.txt`, `Dockerfile` (the collector must run as a packaged image)
+- `collector/main.py` (FastAPI app), `requirements.txt` and native launch instructions
 - `collector/parsers/` with a small plugin interface (`detect(raw) -> bool`, `parse(raw) -> Record`) and the first two parsers (JSON, syslog)
 - `collector/enroll.py`: first start exchanges a one-time enrollment token for the collector key and config
 - `collector/schema.py` (Pydantic model generated from or matching the contract, `extra="forbid"`)
@@ -155,7 +157,7 @@ Starting material for all of it is already in [phase1.md](phase1.md); copy the r
 **Contract (hour 0–1):** review and approve A's contract; write the SaaS response shapes in `contracts/api.md` through A.
 
 **Scaffold (hours 1–2), only inside `saas/`:**
-- `saas/main.py` (stateless FastAPI app: all state lives in Postgres, `REPLICA_ID` env var), `requirements.txt`, `Dockerfile`
+- `saas/main.py` (stateless FastAPI app: all state lives in Postgres, `REPLICA_ID` env var), `requirements.txt` and native launch instructions
 - `saas/auth.py` (key to tenant lookup from a static seed file)
 - `saas/ingest.py` with dedup on `payload_id` (unique constraint in Postgres so any replica rejects duplicates; returns `accepted` and `duplicate`)
 - `saas/store.py` (Postgres, `tenant_id` on every table, row-level security so a query can only see its own tenant)
@@ -170,11 +172,11 @@ Starting material for all of it is already in [phase1.md](phase1.md); copy the r
 
 **Scaffold (hours 0–2), in this order:**
 1. Root `.gitignore` and `.env.example` (first commit, so nobody else needs to touch them)
-2. `docker-compose.yml` with placeholder services for collector, saas-1, saas-2, postgres, load balancer, dashboard (A and B supply their `Dockerfile` names and ports from §3.2)
+2. A native one-command local start script is planned; see the current edge/platform work split in `docs/phase-2.md`.
 3. `simulator/` generator producing the JSON-lines shape in §3.5: metrics, auth logs (some with secrets), heartbeats, plus a `scenarios/` folder with one script per live scenario
 4. `dashboard/` Vite + React skeleton with routes for Fleet, Incidents, Proof, Egress; data from mock JSON that matches `contracts/api.md`, so it works before B finishes
 
-**Done when:** `docker compose up` starts all services, the simulator feeds the collector, and the dashboard renders the Fleet page (mock data is fine at this stage).
+**Done when:** the planned local start script starts all services, the simulator feeds the collector, and the dashboard renders the Fleet page (mock data is fine at this stage).
 
 ---
 
@@ -183,7 +185,7 @@ Starting material for all of it is already in [phase1.md](phase1.md); copy the r
 | Hour | Event | Who |
 |---|---|---|
 | 0:00 | 15-minute kickoff: confirm ownership table, ports, branch rules | all |
-| 0:00–1:00 | A drafts contract, B reviews, C writes `.gitignore` and compose placeholder | A, B, C |
+| 0:00–1:00 | A drafts contract, B reviews, owners agree on local launch and configuration | A, B, C |
 | **1:00** | **Contract freeze.** Merge `contracts/` and the root files into `main` | A, B, C |
 | 1:00–2:00 | Everyone scaffolds their own folder, writes their `docs/p1/` file | all |
 | **2:00** | **Phase 1 review:** read the three docs together, check against the evaluation sheet, rehearse Q1/Q2 and the pitch | all |
@@ -197,7 +199,7 @@ After hour 2, continue with the timeline in [starter.md](../starter.md): merge t
 
 - [ ] I only changed files under paths I own.
 - [ ] I rebased on `origin/main` just now.
-- [ ] I did not edit `contracts/`, `README.md` or `docker-compose.yml` unless I own them.
+- [ ] I did not edit `contracts/` or `README.md` unless I own them.
 - [ ] No generated files, databases or secrets are staged (`git status`).
 - [ ] If I need a change in someone else's area, I messaged them instead of editing it.
 - [ ] The PR is small enough to review in five minutes.
@@ -212,7 +214,7 @@ After hour 2, continue with the timeline in [starter.md](../starter.md): merge t
 - [ ] `docs/p1/story-and-plan.md` written by C (Q1, Q2, use cases, MVP, plan, pitch)
 - [ ] Q1 and Q2 rewritten in the team's own words
 - [ ] Contract merged and frozen
-- [ ] Scaffold merged; `docker compose up` starts without errors
+- [ ] Scaffold merged; the planned local start script runs without errors
 - [ ] Every member can explain the whole flow in 60 seconds, not only their own part
 
 ---
@@ -223,11 +225,11 @@ After hour 2, continue with the timeline in [starter.md](../starter.md): merge t
 
 | Note | Owner | Work |
 |---|---|---|
-| High-availability central SaaS | B (app), C (compose, load balancer) | 2 stateless replicas, shared Postgres, DB-enforced dedup, "kill one replica" demo script |
+| High-availability central SaaS | B (app), Edge (launch, planned failover proxy) | 2 stateless replicas, shared Postgres, DB-enforced dedup, "kill one replica" demo script |
 | Any traffic format | A (parsers), C (multi-format simulator) | parser plugins plus format auto-detect; batching and gzip to optimize what is sent |
 | Secure | A, B | TLS, API key, HMAC, allow-list, scrubbing (unchanged) |
 | Automated | A (enroll), C (CI, one-command start) | one-time enrollment token; CI builds and tests on every push |
-| Packaged | A, B, C | Docker image per service, one `docker compose up`, one-line collector install script |
+| Packaged | A, B, C | Native run instructions exist; one-command startup and installer are planned |
 | Observe everything | A | one parser plugin per source type: infrastructure, network, applications, security |
 
 The guide's regional ingest and residency requirements stay in the design write-up (B's `saas-and-aiops.md`), but the live demo uses the single central SaaS.

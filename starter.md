@@ -1,3 +1,5 @@
+> Historical Phase 1 planning document. Packaging and ownership have changed; use `README.md` for the native run instructions and `docs/phase-2.md` for the current team split. Earlier load-balancer and packaging ideas below are historical proposals, not available run commands.
+
 # CICADA 2026 — Secure AIOps Observability: Starter Guide
 
 > 24-hour hackathon · TechForcz x Atria Institute of Technology
@@ -50,7 +52,7 @@ Bonus (tie-breakers only): privacy pipeline · local buffering · explainable AI
 | **Traffic format can be anything** | The collector auto-detects and parses JSON, syslog, plain text, CSV, key=value, SNMP and flow data, then normalizes everything to one internal model before redaction. Batching and gzip compression optimize what is sent. |
 | **Secure** | TLS, per-collector API key, HMAC-signed payloads, allow-list schema, scrubbing. |
 | **Automated** | One-time enrollment token: a new collector registers itself, receives its key and config, and starts reporting with no manual setup. CI builds and tests on every push. |
-| **Packaged** | Docker images for collector and SaaS, one `docker compose up` for the whole stack, and a one-line collector install script. |
+| **Packaged** | Native local setup is documented in the README. A one-command start and installer remain planned. |
 | **Observe everything** | Wide coverage through one parser plugin per source type: infrastructure, network, applications, security. |
 
 ---
@@ -136,11 +138,11 @@ cicada/
 ├─ docs/        Phase 1 / Phase 2 artifacts, diagrams
 ├─ scripts/     demo_*.sh (one per live scenario)
 ├─ deploy/      load balancer config, install + enrollment scripts, CI workflow
-├─ docker-compose.yml
+├─ scripts/   local run and demonstration scripts (planned)
 └─ starter.md
 ```
 
-**Stack:** Python 3.11 (FastAPI, Pydantic) · SQLite on the collector, Postgres on the SaaS · nginx or Traefik load balancer · React + Vite · Docker Compose · GitHub Actions CI.
+**Stack:** Python 3.11 (FastAPI, Pydantic) · SQLite on the collector, Postgres on the SaaS · planned failover proxy · React + Vite · GitHub Actions CI.
 
 ---
 
@@ -148,9 +150,9 @@ cicada/
 
 | Role | Owns |
 |---|---|
-| **A — Collector & security** | any-format parsers and normalization, redaction, schema/policy, outbox/buffering, batching + compression, sender, TLS/HMAC, enrollment, egress panel, local UI, collector Docker image |
+| **A — Collector & security** | any-format parsers and normalization, redaction, schema/policy, outbox/buffering, batching + compression, sender, TLS/HMAC, enrollment, egress panel, local UI, collector packaging plan |
 | **B — SaaS & AIOps** | stateless replicas on Postgres, ingest, DB-enforced dedup, tenant isolation, health engine, anomaly/correlation/recommendations, remediation sim, proof metrics |
-| **C — Dashboard & demo** | React views, simulator (multi-format) + scenario scripts, compose with load balancer and 2 replicas, one-command start, CI, Phase 1/2 docs, pitch |
+| **C — Dashboard & demo** | React views, simulator (multi-format) + scenario scripts, native start plan with 2 replicas and a planned failover proxy, one-command start, CI, Phase 1/2 docs, pitch |
 
 With 2 people, merge C into A/B. **Hour 1: agree and freeze the payload schema + API contract** so work runs in parallel.
 
@@ -232,7 +234,7 @@ Stream → collector redaction → egress panel → SaaS ingest with dedup → 4
 ## 12. First steps (do these now)
 
 1. Freeze `collector/schema.py` and the API contract; share with the team.
-2. Scaffold the repo and `docker-compose.yml`.
+2. Follow the native setup in the README; coordinate the one-command start script with the edge owner.
 3. Build the simulator and the thin path: simulator → collector → SaaS → dashboard.
 4. In parallel, write the Phase 1 pack in `docs/` (Q1/Q2, trust-boundary sketch, allow-list table).
 5. Ask organizers for the stream format and add its adapter as soon as it is known.

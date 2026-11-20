@@ -34,7 +34,7 @@ Sources ─► Collect ─► Redact ─► Aggregate ─► Analyze locally ─
 - **Local-first privacy:** secret scrubbing, HMAC pseudonymous source IDs, and a strict allow-list schema that rejects any extra field.
 - **Metadata-only SaaS:** tenant ID comes from the authenticated credential, never from the payload; one datastore per tenant, pinned to its region.
 - **Any traffic format:** the collector auto-detects and parses JSON, syslog, text, CSV, key=value, SNMP and flow data into one internal model, and batches and compresses what it sends.
-- **Highly available (replicas on shared Postgres), automated, packaged:** stateless SaaS replicas share one Postgres with row-level tenant isolation. One-time-token enrollment is planned. Docker packaging was removed for now; everything runs natively (see Quick start).
+- **Highly available (replicas on shared Postgres), automated, packaged:** stateless SaaS replicas share one Postgres with row-level tenant isolation. One-time-token enrollment is implemented for a local prototype; the collector client is pending. Docker packaging was removed for now; everything runs natively (see Quick start).
 - **Four health states:** Excellent / Good / Fair / Poor, with configurable thresholds, a reason for every transition, and stale-data downgrade.
 - **Explainable AIOps:** baselines and anomaly detection beyond static thresholds, correlation of many alerts into one incident, and recommendations that show their contributing signals, confidence and reasoning path.
 - **Reliable delivery:** local buffering during outages, retry with backoff, idempotent payload IDs, and out-of-order events placed by event time.
@@ -79,7 +79,7 @@ Database tests in `saas/tests` are skipped unless `TEST_DATABASE_URL` points at 
 **1. A local Postgres (one time, port 5433, PowerShell):**
 
 ```
-$pg = "C:\Program Files\PostgreSQLin"
+$pg = "C:\Program Files\PostgreSQL\16\bin"
 & "$pg\initdb.exe" -D data\pg -U postgres --auth=trust -E UTF8
 & "$pg\pg_ctl.exe" -D data\pg -o "-p 5433" -l data\pg.log start
 & "$pg\createdb.exe" -h localhost -p 5433 -U postgres signal
@@ -108,7 +108,7 @@ cd dashboard; npm install; npm run dev
 
 Look at `http://localhost:8101/local/raw` (secrets visible, local only) and `http://localhost:8101/local/egress` (exactly what left). Read the SaaS side with `Authorization: Bearer dash-acme` on `http://localhost:8001/v1/fleet` or `/v1/proof` (replica 2 reads what replica 1 stored). Simulate an outage with `curl -X POST localhost:8101/local/saas-link/down` (and `/up` to reconnect).
 
-There is no load balancer now, so the collector talks to one replica; stopping that replica makes it buffer and retry. The dashboard still shows demo data and is not connected to the SaaS yet.
+There is no load balancer now, so the collector talks to one replica; stopping that replica makes it buffer and retry. The dashboard uses fixtures by default. Set `VITE_DASHBOARD_TOKEN` in `dashboard/.env.local` to connect it to the SaaS. See `dashboard/README.md`; never use real credentials in Vite environment variables.
 
 The payload contract is in [contracts/](contracts/): `collector/schema.py` is the source, `contracts/payload.schema.json` is generated from it, and a test fails if they drift. Regenerate with `python -m collector.export_schema`.
 
@@ -121,17 +121,17 @@ The payload contract is in [contracts/](contracts/): `collector/schema.py` is th
 
 - [x] Problem analysis and execution plan
 - [x] Phase 1 documentation
-- [ ] Phase 2: architecture document and diagram
-- [ ] Repo scaffold and frozen payload schema
-- [ ] MVP pipeline: simulator, collector, SaaS, dashboard
+- [x] Phase 2 platform architecture and API documentation
+- [x] Repo scaffold and frozen payload schema
+- [x] Prototype pipeline: simulator, collector, SaaS, dashboard (organizer-stream validation pending)
 - [ ] Buffering, heartbeat, egress panel, failed-login detection, baseline anomaly
-- [ ] Correlation, explainable recommendations, remediation simulation, multi-region
+- [x] Correlation, explainable recommendations, simulated actions and separate-region database support (deployment validation pending)
 - [ ] Live-scenario rehearsal and final demo
 
 ## Honest limitations (planned prototype)
 
 - Remediation is simulated, not executed.
-- Self-signed TLS and shared-secret HMAC; production needs mTLS and key management.
+- TLS and certificate verification still need edge integration; local development uses HTTP. Production needs mTLS and key management.
 - A single Postgres behind the replicas is still one failure point; production needs a replicated database, a message queue and a time-series store.
 - Format auto-detection covers a fixed set of formats; unknown formats fall back to generic text parsing.
 - Regex-based redaction can miss novel secret formats; production adds entropy detection and review.
