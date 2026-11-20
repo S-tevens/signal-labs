@@ -1,6 +1,13 @@
 # Connecting the organizers' stream
 
-Status: **ready to connect, not yet connected.** The organizers said the traffic can be in any format, and nothing about the stream's address or shape has reached us. Everything on our side is in place so that connecting it takes minutes. When it is connected, the mandatory item "shared organizer telemetry stream" can be ticked, with the evidence this page asks you to keep.
+Status: **ready to connect, not yet connected.** Everything on our side is in place so that connecting takes minutes; when it is connected, the mandatory item "shared organizer telemetry stream" can be ticked, with the evidence this page asks you to keep.
+
+## What the organizers have told us, and how we answer it
+
+This is all we have been given: (1) the traffic format can be anything, so that teams can work with accurate data and optimise; (2) the SaaS can be uniform, central and highly available. No address, token, sample or schema has been shared.
+
+- **"Any format"**: the collector does not assume one. It reads NDJSON, flat and nested JSON (Elastic, OpenTelemetry, Telegraf and Datadog shapes, lists of `{name, value}` objects), key=value, RFC3164 and RFC5424 syslog, CSV with a header, Prometheus text, InfluxDB line protocol and plain text, with names, units and times set in `collector/mapping.yaml` rather than in code. Anything it cannot map is dropped before the pipeline and counted, never guessed.
+- **"Uniform, central, highly available SaaS"**: one entry point (a failover proxy) in front of two stateless replicas sharing one Postgres, with row-level tenant isolation and idempotent ingest. Killing a replica loses nothing (`demo.ps1 failover`). It is a single-machine demonstration of the design, not a multi-site deployment.
 
 ## What to get from the organizers (one question)
 
@@ -28,7 +35,7 @@ Save the sample lines in a file and run:
 
 It shows, for each line, the format found, the host, the metric and value after our aliases and unit conversions, whether a time could be read, and which sensitive patterns were seen (they stay local). It lists anything that did not map and the exact lines to add to `collector\mapping.yaml` (for example `net_rx_kbps: {name: bandwidth_mbps, scale: 0.001}`), then ends with a verdict: **READY**, **NEEDS MAPPING** or **NOTHING USABLE**. Edit the mapping file, rerun, repeat until READY. No code changes are needed for names, units, time formats or field names.
 
-Supported without any work: NDJSON, key=value, RFC3164 syslog, CSV with a header line, plain text, one record per metric column, time as ISO text, epoch seconds, milliseconds, microseconds or nanoseconds, or a handful of date formats (more are one line in the mapping).
+Supported without any work: NDJSON; nested JSON read as dotted keys (`system.cpu.total.pct`, with ECS, Telegraf and OpenTelemetry names pre-mapped); a list of objects under one resource (one record each, sharing its host and time); key=value; RFC3164 and RFC5424 syslog; CSV with a header line; Prometheus text exposition (host from the `instance` label); InfluxDB line protocol (host from the `host` tag); plain text; one record per metric column; time as ISO text, epoch seconds, milliseconds, microseconds or nanoseconds, or a handful of date formats (more are one line in the mapping).
 
 ## Step 2: connect it and watch
 

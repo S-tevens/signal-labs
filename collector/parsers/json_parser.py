@@ -14,7 +14,7 @@ def parse_many(line: str) -> list[dict]:
     data = json.loads(line)
     if not isinstance(data, dict):
         raise ValueError("not an object")
-    return mapping.get().normalize(data, line)
+    return mapping.get().normalize_nested(data, line)
 
 
 def parse(line: str) -> dict:

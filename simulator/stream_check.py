@@ -29,6 +29,7 @@ from collector.pipeline import Pipeline  # noqa: E402
 from collector.pull import expand  # noqa: E402
 from collector.redact import redact  # noqa: E402
 from collector.schema import METRIC_NAMES  # noqa: E402
+from collector.mapping import flatten  # noqa: E402
 
 GUESS = [("cpu", "cpu_pct"), ("mem", "mem_pct"), ("disk", "disk_pct"), ("lat", "latency_ms"), ("rtt", "latency_ms"), ("loss", "packet_loss_pct"),
          ("band", "bandwidth_mbps"), ("throughput", "bandwidth_mbps"), ("bw", "bandwidth_mbps"), ("net", "bandwidth_mbps"), ("rx", "bandwidth_mbps"), ("tx", "bandwidth_mbps"), ("bps", "bandwidth_mbps"), ("alive", "service_up"), ("up", "service_up"), ("status", "service_up")]
@@ -57,7 +58,7 @@ def fields_of(line: str, header: list[str] | None) -> dict:
     if s.startswith("{"):
         try:
             data = json.loads(s)
-            return data if isinstance(data, dict) else {}
+            return flatten(data)[0] if isinstance(data, dict) else {}
         except ValueError:
             return {}
     if header and "," in s:

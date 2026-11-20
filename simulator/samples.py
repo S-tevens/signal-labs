@@ -56,12 +56,51 @@ def mixed_text(now: float | None = None) -> list[str]:
     ]
 
 
+def ecs_nested(now: float | None = None) -> list[str]:
+    """Elastic / Metricbeat: objects inside objects, ratios 0..1, an @timestamp."""
+    t = datetime.fromtimestamp(now or time.time(), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return [json.dumps({"@timestamp": t, "host": {"name": h}, "event": {"module": "system"},
+                        "system": {"cpu": {"total": {"pct": 0.62}}, "memory": {"actual": {"used": {"pct": 0.41}}}}}) for h in HOSTS]
+
+
+def otel_list(now: float | None = None) -> list[str]:
+    """OpenTelemetry / Datadog style: a list of {name, value} objects under one resource, time in epoch seconds."""
+    t = int(now or time.time())
+    return [json.dumps({"resource": {"host.name": h}, "time": t,
+                        "metrics": [{"name": "cpu_pct", "value": 55.0}, {"name": "latency_s", "value": 0.12}, {"name": "packet_loss_ratio", "value": 0.01}]}) for h in HOSTS]
+
+
+def prometheus(now: float | None = None) -> list[str]:
+    """Prometheus text exposition, as scraped from an exporter (comments included)."""
+    ms = int((now or time.time()) * 1000)
+    out = ["# HELP cpu_pct CPU use", "# TYPE cpu_pct gauge"]
+    for h in HOSTS:
+        out += [f'cpu_pct{{instance="{h}:9100",job="node"}} 73.5 {ms}', f'latency_s{{instance="{h}:9100"}} 0.2 {ms}']
+    return out
+
+
+def influx(now: float | None = None) -> list[str]:
+    """InfluxDB line protocol, nanosecond timestamps (Telegraf output)."""
+    ns = int((now or time.time()) * 1_000_000_000)
+    return [f"cpu,host={h},cpu=cpu-total usage_user=41.5,usage_system=2.0 {ns}" for h in HOSTS] + [f"mem,host={h} used_percent=58.2 {ns}" for h in HOSTS]
+
+
+def syslog_5424(now: float | None = None) -> list[str]:
+    stamp = datetime.fromtimestamp(now or time.time(), timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return [f"<38>1 {stamp} edge-1 sshd 411 ID47 - Failed password for root from 203.0.113.{i + 1} port 22" for i in range(12)]
+
+
 SAMPLES = {
     "wide-ndjson": wide_ndjson,
     "csv-header": csv_with_header,
     "key-value-aliases": key_value,
     "syslog-logins": syslog_logins,
     "mixed-text": mixed_text,
+    "ecs-nested": ecs_nested,
+    "otel-list": otel_list,
+    "prometheus": prometheus,
+    "influx": influx,
+    "syslog-5424": syslog_5424,
 }
 
 if __name__ == "__main__":

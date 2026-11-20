@@ -14,10 +14,10 @@ Normalized record keys (all optional except kind):
 """
 from __future__ import annotations
 
-from . import json_parser, kv_parser, syslog_parser, text_parser
+from . import influx_parser, json_parser, kv_parser, prom_parser, syslog_parser, text_parser
 
 # Order matters: most specific first, plain text is the fallback.
-PARSERS = [json_parser, syslog_parser, kv_parser, text_parser]
+PARSERS = [json_parser, syslog_parser, prom_parser, influx_parser, kv_parser, text_parser]
 
 
 def parse_records(line: str, csv_header: list[str] | None = None) -> list[dict]:

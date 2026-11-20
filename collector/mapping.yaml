@@ -1,7 +1,7 @@
 # How incoming records map onto Signal Labs. Edit this file when the stream's field names, units or time format differ.
 # Matching is case-insensitive. Fields not listed here are dropped before anything else happens.
 
-host_fields: [host, hostname, node, instance, device, server, source, agent]
+host_fields: [host, hostname, node, instance, device, server, source, agent, host.name, host.hostname, agent.hostname, agent.name, resource.host.name, resource.attributes.host.name, labels.host, tags.host, kubernetes.node.name]
 name_fields: [metric, name, metric_name, measurement, type, check]
 value_fields: [value, val, reading, v, result]
 time_fields: [ts, timestamp, time, "@timestamp", datetime, event_time, date]
@@ -21,6 +21,20 @@ timestamp_formats:
 # Our own names (cpu_pct, mem_pct, disk_pct, bandwidth_mbps, latency_ms, packet_loss_pct, service_up, connectivity_up)
 # always map to themselves.
 metrics:
+  # Elastic / Metricbeat (ECS) fields, ratios 0..1 converted to percent
+  system.cpu.total.pct: {name: cpu_pct, scale: 100}
+  system.memory.actual.used.pct: {name: mem_pct, scale: 100}
+  system.memory.used.pct: {name: mem_pct, scale: 100}
+  system.filesystem.used.pct: {name: disk_pct, scale: 100}
+  # Telegraf / Datadog style names
+  usage_user: cpu_pct
+  used_percent: mem_pct
+  system.cpu.user: cpu_pct
+  system.mem.pct_usable: {name: mem_pct, scale: -100, offset: 100}
+  # common latency and loss names
+  http.server.duration: latency_ms
+  ping_average_response_ms: latency_ms
+  percent_packet_loss: packet_loss_pct
   cpu: cpu_pct
   cpu_percent: cpu_pct
   cpu_usage: cpu_pct
