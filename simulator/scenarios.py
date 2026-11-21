@@ -42,6 +42,9 @@ WINDOW = 5  # must match the collector's WINDOW_S
 
 
 # ---------- plumbing ----------
+# Payloads our own scenarios post straight to the platform (not through the collector) carry this source prefix ("7e57" is test
+# in hex), so the proof tools can tell them apart from a payload the collector really sent.
+TEST_SOURCE = "src_7e57"
 SAAS_CA = os.getenv("SAAS_CA_FILE", "")  # set by demo.ps1 when the stack runs with -Tls
 
 
@@ -241,7 +244,7 @@ def tenants():
         return _call(f"{SAAS}{path}", body, {"X-Collector-Key": key, "X-Signature": sig, "Content-Type": "application/json"})
 
     def metric(tenant, collector, pid=None, **over):
-        p = {"payload_id": pid or str(uuid.uuid4()), "tenant_ref": tenant, "collector_id": collector, "source_id": "src_" + tag.ljust(8, "0"),
+        p = {"payload_id": pid or str(uuid.uuid4()), "tenant_ref": tenant, "collector_id": collector, "source_id": TEST_SOURCE + tag.ljust(8, "0"),
              "region": "in", "event_ts_utc": iso(time.time() - 10), "source_tz": "UTC", "window_s": 5,
              "metric": {"name": "cpu_pct", "value": 30.0, "unit": "%"}, "health_state": "Excellent", "collector_version": "1.0.0"}
         p.update(over)
@@ -594,7 +597,7 @@ def delivery():
             "payload_id": pid or str(uuid.uuid4()),
             "tenant_ref": os.getenv("TENANT_REF", "t-acme"),
             "collector_id": os.getenv("COLLECTOR_ID", "col-blr-01"),
-            "source_id": "src_deadbeef0001",
+            "source_id": "src_7e57deadbeef0001",
             "region": os.getenv("REGION", "in"),
             "event_ts_utc": iso(now - offset),
             "source_tz": "UTC",
@@ -610,7 +613,7 @@ def delivery():
     print("  resend NEWER (duplicate):", saas_post_signed([newer])[1])
     changed = {**newer, "metric": {**newer["metric"], "value": 999.0}}
     print("  same ID, different body (conflict):", saas_post_signed([changed])[1])
-    pts = saas_get("/v1/metrics?name=bandwidth_mbps&source=src_deadbeef0001")
+    pts = saas_get("/v1/metrics?name=bandwidth_mbps&source=src_7e57deadbeef0001")
     if isinstance(pts, list):
         order = [(p["event_ts_utc"], p["metric"]["value"]) for p in pts if p["payload_id"] in (newer["payload_id"], older["payload_id"])]
         print("  stored order by event time:", order)

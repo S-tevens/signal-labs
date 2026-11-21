@@ -195,7 +195,9 @@ def platform_observation_ids(collector_id: str) -> list[str]:
     status, body = sc._call(f"{sc.SAAS}/v1/objects/observation", headers={"Authorization": f"Bearer {sc.DASH}"})
     if status != 200 or not isinstance(body, list):
         return []
-    return [o["id"] for o in body if o.get("properties", {}).get("collector_id") == collector_id]
+    # Payloads our own test scenarios post straight to the platform carry the reserved source prefix src_7e57 and are
+    # not expected in the collector's egress log.
+    return [o["id"] for o in body if o.get("properties", {}).get("collector_id") == collector_id and not str(o["properties"].get("source_id", "")).startswith("src_7e57")]
 
 
 # ---------------------------------------------------------------- MATCH

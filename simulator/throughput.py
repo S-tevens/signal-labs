@@ -27,7 +27,7 @@ def pct(vals, p):
 
 
 def saas_ingest():
-    sources = ["src_" + uuid.uuid4().hex[:8] for _ in range(50)]
+    sources = ["src_7e57" + uuid.uuid4().hex[:8] for _ in range(50)]
     base = time.time() - 600
     payloads = [{"payload_id": str(uuid.uuid4()), "tenant_ref": "t-acme", "collector_id": "col-blr-01",
                  "source_id": sources[i % 50], "region": "in", "event_ts_utc": sc.iso(base + i * 0.05),
