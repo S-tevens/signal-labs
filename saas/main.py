@@ -283,7 +283,7 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
         return {'tenant_id':who.tenant,'region':region,'replica_id':replica_id,'database':'reachable','collectors':collectors,'payloads':payloads,'incidents':incidents}
     @app.get('/v1/forecast')
     def forecast(request:Request,collector:str,source:str,name:str,horizon_s:int=60):
-        who=auth.dashboard(request)
+        who=need(request,'read')
         from .aiops import canonical
         from .forecast import project
         if not 1<=horizon_s<=300: raise HTTPException(422,'horizon_s must be between 1 and 300')
@@ -292,7 +292,7 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
         return project(rows,name,config,time.time(),horizon_s)
     @app.get('/v1/what-if')
     def what_if(request:Request,name:str,value:float):
-        auth.dashboard(request)
+        need(request,'read')
         import math
         from .aiops import canonical
         from .health import metric_state
