@@ -1,0 +1,39 @@
+# Render Blueprint: one web service (platform API + built dashboard) and one Postgres database.
+# The collector and the simulator keep running on the customer's machine (scripts/push-to-cloud.ps1).
+databases:
+  - name: signal-db
+    plan: free
+    databaseName: signal
+    user: signal_admin
+
+services:
+  - type: web
+    name: signal-labs
+    runtime: python
+    plan: free
+    buildCommand: pip install -r saas/requirements.txt && cd dashboard && npm ci --no-audit --no-fund && npm run build
+    startCommand: python scripts/render_start.py
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: REGION
+        value: in
+      - key: ADMIN_DATABASE_URL
+        fromDatabase:
+          name: signal-db
+          property: connectionString
+      - key: SAAS_DB_PASSWORD
+        generateValue: true
+      - key: SAAS_SESSION_SECRET
+        generateValue: true
+      - key: COLLECTOR_KEY
+        generateValue: true
+      - key: COLLECTOR_SECRET
+        generateValue: true
+      - key: SEED_PASSWORD      # password for the demo accounts (12+ characters); you set it in the Render dashboard
+        sync: false
+      - key: GEMINI_API_KEY     # the AI engine's key; paste it in the Render dashboard
+        sync: false

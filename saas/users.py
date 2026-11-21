@@ -196,7 +196,7 @@ def seed_dev_users(path: str) -> None:
             with store.connect(tenant, lock=False) as db:
                 if get_user(db, username):
                     continue
-                password = known.get(key, {}).get("password") or secrets.token_urlsafe(12) + "-Aa1"
+                password = os.getenv("SEED_PASSWORD") or known.get(key, {}).get("password") or secrets.token_urlsafe(12) + "-Aa1"
                 create_user(db, "seed", username, display, role, password, must_change=False)
                 known[key] = {"tenant": tenant, "username": username, "password": password, "role": role}
     file.parent.mkdir(parents=True, exist_ok=True)
