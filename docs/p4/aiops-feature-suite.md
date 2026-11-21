@@ -1,0 +1,19 @@
+# AIOps feature suite
+
+This branch includes the prior privacy proof, explainable incident, evidence graph and incident timeline work, and adds a deliberately limited forecast, opt-in adaptive host sampling and a read-only what-if simulator. These are prototypes for an operator to investigate; the organizer-stream demonstration and timing targets still require live measurement.
+
+## Feature guide
+
+1. **Privacy proof:** the collector-local panel displays the raw local record, redaction spans, the canonical queued payload and its SHA-256. The full HTTP request contains an array of payloads; the per-payload hash is not a hash of the HTTP request. Follow the selected ID to the tenant-scoped stored observation. The platform normalizes fields and the local leak check only searches retained, recognized spans.
+2. **Explainable AIOps:** an incident shows its signal, value, threshold or baseline, method, timestamps, evidence and recommended investigation. Current correlation and recommendations are heuristics; no root cause is proven. Actions remain simulated.
+3. **Evidence graph:** the incident drawer links the collector, pseudonymous source, retained payloads, incident and recommendation. It is an evidence/lineage graph, not a service-dependency map; no topology has been verified.
+4. **Incident timeline:** retained event and alert times are displayed in UTC with payload links. Missing or expired history cannot be reconstructed; no recovery event is invented.
+5. **Predictive AIOps:** AIOps lab requests a projection for one collector, source and metric. It needs at least eight distinct observations over at least 60 seconds, with the most recent less than 120 seconds old. A least-squares line is trained on all but the last two observations, which are held out; projection is refused if its mean absolute error exceeds a last-value baseline. The horizon is bounded by the requested value, five minutes and the available history span. It is an experimental extrapolation, not a validated probability, alert, causal explanation or guaranteed forecast. Threshold crossing describes the projection, not a confirmed future incident. There is no prediction interval.
+6. **Adaptive telemetry:** set `ADAPTIVE_TELEMETRY=1` on a collector that has host telemetry enabled. Host CPU or memory ≥80% switches local host sampling to half the normal interval, bounded to no faster than 0.5 s and never slower than normal. Both CPU and memory must be below 70% for three samples to return to normal. It is off by default; mode, reason and intervals appear in `/local/host` and the local stages panel. This affects only local host sampling, not external organizer input, heartbeat, aggregation windows, probes or send intervals. More frequent sampling may increase local CPU and data volume; rerun timing and load measurements before enabling for judging.
+7. **What-if simulator:** enter one hypothetical metric value in AIOps lab. The platform evaluates its configured thresholds and returns a health state. It does not forecast behavior, simulate dependencies, change configuration, create an incident or execute actions. Actual collector health also depends on other signals and heartbeat age.
+
+## Verification
+
+The platform tests cover minimum data, staleness, a bad holdout fit, horizon and value bounds, authentication, tenant isolation and the no-write what-if result. Collector tests cover opt-in sampling and recovery hysteresis. The timeline tests cover ordering and missing timestamps. Run `pytest -q saas collector` with dedicated migrated test databases, `npm run build` and `node --test tests/incidentEvidence.test.js` from `dashboard/`.
+
+Before presenting, rehearse on the actual organizer feed, validate forecasts against representative historical data, agree the adaptive sampling profile with the collector owner and remeasure p95, alert delay, offline time and outage delivery. Do not describe synthetic checks as organizer-stream results.

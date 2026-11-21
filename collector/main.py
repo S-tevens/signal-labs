@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, Response
 from .adapters import Adapters
 from .config import COLLECTOR_VERSION, DEV_COLLECTOR_KEY, Config
 from .enroll import EnrollmentError, ensure_enrolled
-from .outbox import LocalStore
+from .outbox import LocalStore, canonical
 from .pipeline import Pipeline
 from .push import PushGuard, otlp_to_lines, read_body
 from .pull import expand
@@ -242,6 +242,7 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
             {"id": r["id"], "received_at": r["received_at"], "text": r["text"][:4000], "spans": find_spans(r["text"][:4000], rules)}
             for r in raws
         ]
+        e["canonical_payload_utf8"] = canonical(e["payload"]).decode("utf-8")
         e["raw_total"] = len(e["raw_ids"])
         e["markings"] = {k: pipeline.policy.fields[k]["classification"] for k in e["payload"] if k in pipeline.policy.fields}
         return e

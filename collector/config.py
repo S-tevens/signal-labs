@@ -54,6 +54,7 @@ class Config:
     host_telemetry: bool = field(default_factory=lambda: os.getenv("HOST_TELEMETRY", "1") != "0")
     host_label: str = field(default_factory=lambda: os.getenv("HOST_LABEL", "") or socket.gethostname())
     host_interval_s: float = field(default_factory=lambda: float(os.getenv("HOST_INTERVAL_S", "2")))
+    adaptive_telemetry: bool = field(default_factory=lambda: os.getenv("ADAPTIVE_TELEMETRY", "0") == "1")
     probe_interval_s: float = field(default_factory=lambda: float(os.getenv("PROBE_INTERVAL_S", "5")))
     probe_attempts: int = field(default_factory=lambda: int(os.getenv("PROBE_ATTEMPTS", "4")))
     probe_timeout_s: float = field(default_factory=lambda: float(os.getenv("PROBE_TIMEOUT_S", "1.0")))

@@ -290,3 +290,19 @@ def test_phase4_heartbeat_threshold_from_config(db_url):
         with Store(db_url).connect('t-one') as db:
             db.execute('UPDATE fleet SET last_seen=?',(now-41,)); refresh(db,config,now)
             assert db.execute('SELECT state FROM fleet').fetchone()['state']=='Poor'
+
+
+def test_aiops_lab_auth_isolation_and_read_only_simulation(client):
+    now=time.time()
+    history=[p(f'forecast-{i}',now-105+i*15,val=40+i*2) for i in range(8)]
+    assert len(post(client,history).json()['accepted']) == 8
+    path='/v1/forecast?collector=col-one&source=src_12345678&name=cpu_pct&horizon_s=60'
+    assert client.get(path).status_code == 401
+    predicted=get(client,path).json()
+    assert predicted['available'] and predicted['sample_count']==8 and predicted['projected']==62
+    assert not get(client,path,'d2').json()['available']
+    before=get(client,'/v1/incidents').json()
+    simulated=get(client,'/v1/what-if?name=cpu_pct&value=99').json()
+    assert simulated['state']=='Poor' and simulated['simulation_only'] is True
+    assert get(client,'/v1/incidents').json()==before
+    assert get(client,'/v1/what-if?name=cpu_pct&value=101').status_code==422

@@ -37,6 +37,7 @@ import {
 } from "./data.js";
 import { LIVE, useLiveData } from "./api.js";
 import Analytics from "./Analytics.jsx";
+import AIOpsLab from "./AIOpsLab.jsx";
 import DataFlow from "./DataFlow.jsx";
 import UsersAdmin from "./Users.jsx";
 import { UserMenu } from "./Auth.jsx";
@@ -52,6 +53,7 @@ const pages = {
     "",
   ],
   flow: ["Data flow", "Trace the journey from local telemetry to operational insights."],
+  lab: ["AIOps lab", "Explore projections and hypothetical health states."],
   analytics: ["Analytics overview", "Understand your collectors, signals, and incidents at a glance."],
   incidents: [
     "Incidents",
@@ -73,6 +75,7 @@ const pages = {
 const nav = [
   { id: "fleet", label: "Overview", icon: Layers3 },
   { id: "analytics", label: "Analytics", icon: BarChart3 },
+  { id: "lab", label: "AIOps lab", icon: Sparkles },
   { id: "flow", label: "Data flow", icon: GitBranch },
   { id: "incidents", label: "Incidents", icon: Activity },
   { id: "proof", label: "Performance proof", icon: ShieldCheck },
@@ -83,7 +86,7 @@ const nav = [
   { id: "users", label: "Users", icon: ShieldCheck, adminOnly: true },
 ];
 const NAV_GROUPS = [
-  { label: "Main menu", ids: ["fleet", "analytics", "flow", "incidents", "proof"] },
+  { label: "Main menu", ids: ["fleet", "analytics", "lab", "flow", "incidents", "proof"] },
   { label: "Investigate", ids: ["received", "objects", "history", "egress"] },
   { label: "Administration", ids: ["users"] },
 ];
@@ -1206,6 +1209,7 @@ function Dashboard() {
             />
           )}
           {page === "flow" && <DataFlow collectors={rows} incidents={incidents} region={region} mode={mode} />}
+          {page === "lab" && <AIOpsLab collectors={rows} mode={mode}/>}
           {page === "analytics" && <Analytics collectors={rows} incidents={incidents.filter(i => region === "all" || i.region === region)} region={region} mode={mode} proof={proof} cpuSeries={cpuSeries} latencySeries={latencySeries} analyticsSeries={analyticsSeries} onSelectCollector={(c) => setDetail({ type: "collector", item: c })} />}
           {page === "incidents" && (
             <Incidents
