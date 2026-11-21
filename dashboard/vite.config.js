@@ -17,15 +17,28 @@ const run = recorded();
 const target = process.env.SAAS_PROXY_TARGET || run.saas_url || "http://127.0.0.1:8000";
 const agent = target.startsWith("https") && run.ca && fs.existsSync(run.ca) ? new https.Agent({ ca: fs.readFileSync(run.ca) }) : undefined;
 
-export default defineConfig({
-  server: {
-    proxy: {
-      "/api": {
-        target,
-        changeOrigin: true,
-        agent,
-        rewrite: (p) => p.replace(/^\/api/, ""),
-      },
+// On the public address (PUBLIC_MODE=1) the browser may only use what the dashboard needs. Collector traffic (ingest,
+// heartbeat, enrollment) is refused here, whatever credentials are presented.
+const BLOCKED_PUBLIC = /^\/api\/v1\/(ingest|heartbeat|enroll|enrollment-tokens)(\/|\?|$)/;
+const proxy = {
+  "/api": {
+    target,
+    changeOrigin: true,
+    agent,
+    rewrite: (p) => p.replace(/^\/api/, ""),
+    bypass(req, res) {
+      if (process.env.PUBLIC_MODE === "1" && BLOCKED_PUBLIC.test(req.url || "")) {
+        res.statusCode = 403;
+        res.end("not available on the public address");
+        return false;
+      }
+      return undefined;
     },
   },
+};
+
+export default defineConfig({
+  server: { proxy },
+  // `vite preview` serves the built dashboard; a tunnel presents its own host name, so any Host header is allowed there.
+  preview: { proxy, allowedHosts: true },
 });

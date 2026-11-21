@@ -10,7 +10,7 @@
   recreated with the same passwords). Evidence files in docs\p3\evidence are untouched. Give the simulator about two
   minutes before showing the dashboard: the platform needs a baseline before it scores deviations.
 #>
-param([switch]$AcceptPush, [switch]$NoSimulator, [switch]$NoDashboard)
+param([switch]$AcceptPush, [switch]$NoSimulator, [switch]$NoDashboard, [switch]$Public)
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 Write-Host "Stopping the stack ..."
@@ -27,5 +27,6 @@ $opts = @{ Tls = $true }
 if ($AcceptPush) { $opts["AcceptPush"] = $true }
 if ($NoSimulator) { $opts["NoSimulator"] = $true }
 if ($NoDashboard) { $opts["NoDashboard"] = $true }
+if ($Public) { $opts["Public"] = $true }
 Write-Host "Starting the stack ..."
 & (Join-Path $PSScriptRoot "run-local.ps1") @opts

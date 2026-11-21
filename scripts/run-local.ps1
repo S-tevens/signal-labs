@@ -24,6 +24,7 @@ param(
   [switch]$Status,
   [switch]$Tls,               # HTTPS between collector and SaaS, with a private dev CA (needs: pip install cryptography)
   [switch]$NoHostTelemetry,   # do not read this machine's CPU, memory, disk, bandwidth or probe the network
+  [switch]$Public,            # hardened for a public address: random collector secrets, no static API tokens, built dashboard, no collector traffic through the web
   [switch]$AcceptPush,        # let OTHER machines send their stream to this collector (a token is required; see scripts\push-info.ps1)
   [switch]$NoProxy,           # send straight to replica 1 instead of through the failover proxy (port 8080)
   # Collector timing preset (see collector/config.py). "realtime" is the default here because it is the one that
@@ -134,6 +135,20 @@ $secretFile = Join-Path $data "session.secret"
 if (-not (Test-Path $secretFile)) { -join ((1..48) | ForEach-Object { "{0:x}" -f (Get-Random -Maximum 16) }) | Set-Content $secretFile -Encoding ascii }
 $env:SAAS_SESSION_SECRET = (Get-Content $secretFile -Raw).Trim()
 $env:REGION = "in"
+if ($Public) {
+  # Nothing that is written in the public repository may work against a public instance: the collector's key and secret are
+  # random (kept in data\public.json, git-ignored), there are no static dashboard tokens, and people sign in with users.
+  $pubFile = Join-Path $data "public.json"
+  if (-not (Test-Path $pubFile)) {
+    $rnd = { -join ((1..$args[0]) | ForEach-Object { "{0:x}" -f (Get-Random -Maximum 16) }) }
+    @{ collector_key = "key-" + (& $rnd 24); collector_secret = (& $rnd 48) } | ConvertTo-Json | Set-Content $pubFile -Encoding ascii
+  }
+  $pub = Get-Content $pubFile -Raw | ConvertFrom-Json
+  $env:SAAS_AUTH_JSON = (@{ collectors = @{ ($pub.collector_key) = @{ tenant = "t-acme"; region = "in"; collector = "col-blr-01"; secret = $pub.collector_secret } }; dashboard = @{} } | ConvertTo-Json -Depth 6 -Compress)
+  $env:SAAS_DISABLE_API_TOKENS = "1"
+  $env:COLLECTOR_KEY = $pub.collector_key; $env:COLLECTOR_SECRET = $pub.collector_secret
+  $env:PUBLIC_MODE = "1"
+}
 if (-not $env:SAAS_AUTH_JSON) {
   $env:SAAS_AUTH_JSON = '{"collectors":{"key-globex-1":{"tenant":"t-globex","region":"in","collector":"col-globex-01","secret":"dev-secret-globex"},"key-acme-1":{"tenant":"t-acme","region":"in","collector":"col-blr-01","secret":"dev-secret-acme"}},"dashboard":{"dash-viewer":{"tenant":"t-acme","region":"in","role":"viewer"},"dash-globex":{"tenant":"t-globex","region":"in","role":"operator"},"dash-acme":{"tenant":"t-acme","region":"in","role":"operator"},"dash-admin":{"tenant":"t-acme","region":"in","role":"admin"}}}'
 }
@@ -213,7 +228,13 @@ if (-not $NoDashboard) {
     Push-Location $dash; npm ci --no-audit --no-fund | Out-Null; Pop-Location
   }
   # The dashboard now asks people to sign in; no token is baked into the page.
-  Start-Svc "dashboard" "npm.cmd" @("run", "dev") "http://127.0.0.1:5173" $dash
+  if ($Public) {
+    Write-Host "Building the dashboard for the public address ..."
+    Push-Location $dash; npm run build 2>&1 | Out-Null; Pop-Location
+    Start-Svc "dashboard" "npx.cmd" @("vite", "preview", "--host", "127.0.0.1", "--port", "5173", "--strictPort") "http://127.0.0.1:5173" $dash
+  } else {
+    Start-Svc "dashboard" "npm.cmd" @("run", "dev") "http://127.0.0.1:5173" $dash
+  }
 }
 
 # Save the process list before waiting, so stop-local can always clean up.
