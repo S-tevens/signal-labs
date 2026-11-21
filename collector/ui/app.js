@@ -98,8 +98,11 @@ const pairs = (obj) => Object.entries(obj || {}).map(([k, v]) => k + " " + v).jo
 async function loadStages() {
   try {
     const s = await getJSON("/local/stages");
+    const host = await getJSON("/local/host");
+    const adaptive = host.adaptive_sampling;
     const o = s.outbox_now || {};
     const rows = [
+      ["Adaptive host sampling", adaptive ? (adaptive.enabled ? adaptive.mode : "disabled") : "unavailable", adaptive ? adaptive.reason + " · normal " + adaptive.normal_interval_s + "s, fast " + adaptive.fast_interval_s + "s · " + adaptive.scope : "Host telemetry is disabled"],
       ["Received", s.received, pairs(s.by_format)],
       ["Redacted (records that matched a rule)", Object.values(s.redacted_records_by_rule).reduce((a, b) => a + b, 0), pairs(s.redacted_records_by_rule)],
       ["Dropped", s.dropped.oversize_line + s.dropped.unmapped_or_invalid_record, "oversize line " + s.dropped.oversize_line + " · unmapped or invalid " + s.dropped.unmapped_or_invalid_record],

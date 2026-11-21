@@ -176,6 +176,25 @@ class HostSource:
         self.pipeline = pipeline
         self.sampler = sampler or HostSampler(cfg)
         self.errors = 0
+        self.adaptive_mode = 'normal'
+        self.adaptive_reason = 'Adaptive sampling disabled' if not cfg.adaptive_telemetry else 'No sustained high host utilization'
+        self._normal_samples = 0
+
+    def sampling_interval(self, records: list[dict]) -> float:
+        """Optional host-only sampling; no change to event, heartbeat or delivery timing."""
+        base=self.cfg.host_interval_s
+        if not self.cfg.adaptive_telemetry: return base
+        values=[r['value'] for r in records if r.get('name') in {'cpu_pct','mem_pct'}]
+        if values and max(values)>=80:
+            self.adaptive_mode='fast'; self._normal_samples=0
+            self.adaptive_reason='CPU or memory reached 80%'
+        elif self.adaptive_mode=='fast' and len(values)==2 and max(values)<70:
+            self._normal_samples+=1
+            if self._normal_samples>=3:
+                self.adaptive_mode='normal'; self._normal_samples=0
+                self.adaptive_reason='CPU and memory remained below 70% for three samples'
+        elif self.adaptive_mode=='fast': self._normal_samples=0
+        return min(base,max(.5,base/2)) if self.adaptive_mode=='fast' else base
 
     def _ingest(self, records: list[dict]) -> None:
         for rec in records:
@@ -186,15 +205,18 @@ class HostSource:
         next_slow = 0.0
         loop = asyncio.get_running_loop()
         while True:
+            interval=self.cfg.host_interval_s
             try:
-                self._ingest(self.sampler.sample_host())
+                records=self.sampler.sample_host()
+                self._ingest(records)
+                interval=self.sampling_interval(records)
                 if loop.time() >= next_slow:
                     next_slow = loop.time() + self.cfg.probe_interval_s
                     self._ingest(await asyncio.to_thread(self.sampler.sample_slow))
             except Exception:  # one bad sample must never stop monitoring
                 self.errors += 1
                 log.exception("host sampling failed")
-            await asyncio.sleep(self.cfg.host_interval_s)
+            await asyncio.sleep(interval)
 
     def status(self) -> dict:
         s = self.sampler
@@ -205,4 +227,5 @@ class HostSource:
             "disk_paths": s.disks,
             "latest": s.last,
             "errors": self.errors,
+            "adaptive_sampling": {"enabled": self.cfg.adaptive_telemetry, "mode": self.adaptive_mode, "reason": self.adaptive_reason, "normal_interval_s": self.cfg.host_interval_s, "fast_interval_s": min(self.cfg.host_interval_s,max(.5,self.cfg.host_interval_s/2)), "scope": "local host CPU/memory sampling only"},
         }

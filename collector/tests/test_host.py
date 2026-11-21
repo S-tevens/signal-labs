@@ -204,3 +204,19 @@ def test_real_psutil_returns_sane_values():
     s.prime()
     got = {r["name"]: r["value"] for r in s.sample_host()}
     assert 0 <= got["cpu_pct"] <= 100 and 0 < got["mem_pct"] <= 100 and 0 < got["disk_pct"] <= 100
+
+
+def test_adaptive_sampling_opt_in_hysteresis():
+    c=cfg(adaptive_telemetry=True,host_interval_s=2)
+    source=HostSource(c,None,sampler=HostSampler(c,psutil_mod=FakePsutil(),clock=Clock()))
+    records=lambda cpu,mem:[{'name':'cpu_pct','value':cpu},{'name':'mem_pct','value':mem}]
+    assert source.sampling_interval(records(30,50)) == 2
+    assert source.sampling_interval(records(81,50)) == 1
+    assert source.adaptive_mode == 'fast'
+    assert source.sampling_interval(records(50,50)) == 1
+    assert source.sampling_interval(records(50,50)) == 1
+    assert source.sampling_interval(records(50,50)) == 2
+    assert source.adaptive_mode == 'normal'
+    off=cfg(adaptive_telemetry=False,host_interval_s=2)
+    disabled=HostSource(off,None,sampler=HostSampler(off,psutil_mod=FakePsutil(),clock=Clock()))
+    assert disabled.sampling_interval(records(99,99)) == 2

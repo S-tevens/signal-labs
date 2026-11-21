@@ -281,6 +281,25 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
             payloads=db.execute('SELECT COUNT(*) AS n FROM payloads').fetchone()['n']
             incidents=db.execute('SELECT COUNT(*) AS n FROM incidents').fetchone()['n']
         return {'tenant_id':who.tenant,'region':region,'replica_id':replica_id,'database':'reachable','collectors':collectors,'payloads':payloads,'incidents':incidents}
+    @app.get('/v1/forecast')
+    def forecast(request:Request,collector:str,source:str,name:str,horizon_s:int=60):
+        who=auth.dashboard(request)
+        from .aiops import canonical
+        from .forecast import project
+        if not 1<=horizon_s<=300: raise HTTPException(422,'horizon_s must be between 1 and 300')
+        with store.connect(who.tenant,lock=False) as db:
+            rows=db.execute('SELECT ts,value FROM payloads WHERE collector=? AND source=? AND metric=? ORDER BY ts DESC LIMIT 60',(collector,source,canonical(name))).fetchall()
+        return project(rows,name,config,time.time(),horizon_s)
+    @app.get('/v1/what-if')
+    def what_if(request:Request,name:str,value:float):
+        auth.dashboard(request)
+        import math
+        from .aiops import canonical
+        from .health import metric_state
+        metric=canonical(name)
+        if not math.isfinite(value) or metric not in config['metrics'] or 'poor' not in config['metrics'][metric]: raise HTTPException(422,'Use a finite value and a configured threshold metric')
+        if value<0 or (metric in {'cpu','memory','disk','packet_loss'} and value>100) or (metric in {'availability','connectivity'} and value>1): raise HTTPException(422,'Value outside the valid range for this metric')
+        return {'metric':metric,'value':value,'state':metric_state({'name':metric,'value':value},config),'thresholds':config['metrics'][metric],'simulation_only':True,'note':'Threshold-only hypothetical result; it does not predict incidents, change settings or execute actions.'}
     @app.get('/v1/metrics')
     def metrics(request:Request,source:str|None=None,name:str|None=None,limit:int=1000):
         who=need(request,'read'); q='SELECT data,received FROM payloads WHERE metric IS NOT NULL'; args=[]
