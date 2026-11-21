@@ -61,6 +61,8 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
             async with condition:
                 versions[tenant]=versions.get(tenant,0)+1
                 condition.notify_all()
+        def schedule_bump(tenant):
+            if not stop.is_set(): asyncio.create_task(bump(tenant))
         def run():
             while not stop.is_set():
                 try:
@@ -69,7 +71,7 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
                         loop.call_soon_threadsafe(listener_ready.set)
                         while not stop.is_set():
                             for notification in conn.notifies(timeout=1.0):
-                                asyncio.run_coroutine_threadsafe(bump(notification.payload),loop)
+                                loop.call_soon_threadsafe(schedule_bump,notification.payload)
                 except Exception:
                     logging.exception('Dashboard notification listener disconnected; reconnecting')
                     stop.wait(2)
@@ -400,8 +402,9 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
             alerts=sum(r.get('alert_count',0) for r in rows); incidents_count=len(rows)
             return {'alerts':alerts,'incidents':incidents_count,'reduction_ratio':round(1-incidents_count/alerts,4) if alerts else None,'scope':'all retained incidents; correlated alerts only'}
     @app.get('/v1/stream')
-    async def stream(request:Request):
+    async def stream(request:Request,mode:str='snapshot'):
         who=need(request,'read')
+        if mode not in {'snapshot','changes'}: raise HTTPException(422,'Unknown stream mode')
         def snapshot():
             with store.connect(who.tenant,lock='try') as db:
                 if db.locked: refresh(db,config)
@@ -409,7 +412,8 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
         async def generate():
             while not await request.is_disconnected():
                 async with condition: version=versions.get(who.tenant,0)
-                yield 'event: snapshot\ndata: '+dump(await asyncio.to_thread(snapshot))+'\n\n'
+                data={'changed':True} if mode=='changes' else await asyncio.to_thread(snapshot)
+                yield 'event: snapshot\ndata: '+dump(data)+'\n\n'
                 async with condition:
                     try: await asyncio.wait_for(condition.wait_for(lambda: versions.get(who.tenant,0)!=version),timeout=15)
                     except asyncio.TimeoutError: pass

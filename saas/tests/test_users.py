@@ -196,3 +196,10 @@ def test_sign_in_is_unavailable_without_a_session_secret(db_url, monkeypatch):
     monkeypatch.delenv("SAAS_SESSION_SECRET", raising=False)
     with TestClient(create_app("in", db_url, AUTH)) as c:
         assert sign_in(c, "anyone", GOOD).status_code == 503
+
+
+def test_lab_endpoints_require_password_change(app_client):
+    make_user(app_client, 'labcheck', 'viewer')
+    token=sign_in(app_client, 'labcheck', GOOD).json()['token']
+    assert api(app_client, 'GET', '/v1/what-if?name=cpu_pct&value=80', token).status_code == 403
+    assert api(app_client, 'GET', '/v1/forecast?collector=x&source=y&name=cpu_pct', token).status_code == 403
