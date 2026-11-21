@@ -39,6 +39,7 @@ import { LIVE, useLiveData } from "./api.js";
 import Analytics from "./Analytics.jsx";
 import AIOpsLab from "./AIOpsLab.jsx";
 import DemoReadiness from "./DemoReadiness.jsx";
+import DemoTrace from "./DemoTrace.jsx";
 import DataFlow from "./DataFlow.jsx";
 import UsersAdmin from "./Users.jsx";
 import { UserMenu } from "./Auth.jsx";
@@ -54,6 +55,7 @@ const pages = {
     "",
   ],
   flow: ["Data flow", "Trace the journey from local telemetry to operational insights."],
+  trace: ["Trace a payload", "Follow one payload to its incident and recommendation."],
   readiness: ["Demo readiness", "Review live evidence and prepare the judging demonstration."],
   lab: ["AIOps lab", "Explore projections and hypothetical health states."],
   analytics: ["Analytics overview", "Understand your collectors, signals, and incidents at a glance."],
@@ -82,6 +84,7 @@ const nav = [
   { id: "incidents", label: "Incidents", icon: Activity },
   { id: "proof", label: "Performance proof", icon: ShieldCheck },
   { id: "readiness", label: "Demo readiness", icon: CheckCheck },
+  { id: "trace", label: "Trace a payload", icon: GitBranch },
   { id: "received", label: "Received payload", icon: FileJson },
   { id: "objects", label: "Object explorer", icon: Database },
   { id: "history", label: "Health history", icon: Clock3 },
@@ -90,7 +93,7 @@ const nav = [
 ];
 const NAV_GROUPS = [
   { label: "Main menu", ids: ["fleet", "analytics", "lab", "flow", "incidents", "proof", "readiness"] },
-  { label: "Investigate", ids: ["received", "objects", "history", "egress"] },
+  { label: "Investigate", ids: ["trace", "received", "objects", "history", "egress"] },
   { label: "Administration", ids: ["users"] },
 ];
 const regionName = { in: "India", eu: "Europe" };
@@ -1222,6 +1225,7 @@ function Dashboard() {
           )}
           {page === "proof" && <Proof />}
           {page === "readiness" && <DemoReadiness mode={mode} status={status} proof={proof} updatedAt={updatedAt}/>}
+          {page === "trace" && <DemoTrace mode={mode}/>}
           {page === "received" && <ReceivedPayload />}
           {page === "objects" && <ObjectExplorer />}
           {page === "history" && <HealthHistory />}

@@ -311,3 +311,26 @@ def test_aiops_lab_auth_isolation_and_read_only_simulation(client):
 def test_stream_mode_rejects_unknown_values_before_opening(client):
     assert get(client,'/v1/stream?mode=unknown').status_code == 422
     assert client.get('/v1/stream?mode=changes').status_code == 401
+
+
+def test_demo_trace_shows_only_tenant_evidence_and_recommendation(client):
+    observation=p('demo-trace',val=99)
+    assert post(client,observation).status_code==200
+    path='/v1/demo/trace/'+observation['payload_id']
+    assert client.get(path).status_code==401
+    response=get(client,path)
+    assert response.status_code==200
+    trace=response.json()
+    assert trace['payload']['payload_id']==observation['payload_id'] and trace['received_ts_utc']
+    assert len(trace['incidents'])==1
+    assert trace['incidents'][0]['signals'][0]['payload_id']==observation['payload_id']
+    assert trace['incidents'][0]['recommendation']['action']
+    assert get(client,path,'d2').status_code==404
+
+
+def test_demo_trace_reports_observation_without_incident(client):
+    observation=p('demo-quiet',val=20)
+    assert post(client,observation).status_code==200
+    trace=get(client,'/v1/demo/trace/'+observation['payload_id']).json()
+    assert trace['payload']['payload_id']==observation['payload_id']
+    assert trace['incidents']==[]

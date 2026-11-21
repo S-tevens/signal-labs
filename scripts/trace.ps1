@@ -2,10 +2,11 @@
   Trace one payload from the raw record to the incident (task E27).
 
     .\scripts\trace.ps1 --demo              # plant a test secret in a failed-login burst, then trace it
+    .\scripts\trace.ps1 --demo --hold       # pause the synthetic payload for local inspection
     .\scripts\trace.ps1 --latest            # the newest sent payload
     .\scripts\trace.ps1 <payload_id>        # a payload you picked in the egress panel
 
-  Secrets are masked in the output. Exit code 0 = every hop passed. Evidence goes to docs\p3\evidence\trace-*.md.
+  Recognized sensitive spans are masked in console output by default; saved evidence contains no raw record text. Exit code 0 = every hop passed. Evidence goes to docs\p3\evidence\trace-*.md.
 #>
 $root = Split-Path -Parent $PSScriptRoot
 $python = if ($env:PYTHON) { $env:PYTHON } else { "python" }

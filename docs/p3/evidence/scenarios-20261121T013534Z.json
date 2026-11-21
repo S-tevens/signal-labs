@@ -1,0 +1,192 @@
+{
+  "started_utc": "2026-11-21T01:34:08Z",
+  "window_s": 2,
+  "profile": "realtime",
+  "seed": 13,
+  "durations_s": {
+    "warmup": 45.0,
+    "inject": 15.0,
+    "recover": 15.0
+  },
+  "hosts": {
+    "decoys": [
+      "normal-424e61-1",
+      "normal-424e61-2"
+    ],
+    "scenarios": {
+      "cpu-spike": "cpu-spike-424e61",
+      "baseline-deviation": "baseline-deviation-424e61",
+      "latency-spike": "latency-spike-424e61",
+      "packet-loss": "packet-loss-424e61",
+      "disk-fill": "disk-fill-424e61",
+      "failed-logins": "failed-logins-424e61",
+      "alert-storm": "alert-storm-424e61"
+    }
+  },
+  "results": [
+    {
+      "scenario": "cpu-spike",
+      "expected": [
+        "cpu"
+      ],
+      "actual": [
+        "cpu"
+      ],
+      "missed": [],
+      "extra": [],
+      "false_alarms_before_injection": 0,
+      "first_alert_s": 3.6,
+      "all_expected_alerts_s": 3.6,
+      "incidents": 1,
+      "alerts_in_those_incidents": 7,
+      "methods": [
+        "rolling median/MAD",
+        "threshold fallback"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "baseline-deviation",
+      "expected": [
+        "cpu"
+      ],
+      "actual": [
+        "cpu"
+      ],
+      "missed": [],
+      "extra": [],
+      "false_alarms_before_injection": 0,
+      "first_alert_s": 3.6,
+      "all_expected_alerts_s": 3.6,
+      "incidents": 1,
+      "alerts_in_those_incidents": 1,
+      "methods": [
+        "rolling median/MAD"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "latency-spike",
+      "expected": [
+        "latency"
+      ],
+      "actual": [
+        "latency"
+      ],
+      "missed": [],
+      "extra": [],
+      "false_alarms_before_injection": 0,
+      "first_alert_s": 1.7,
+      "all_expected_alerts_s": 1.7,
+      "incidents": 1,
+      "alerts_in_those_incidents": 8,
+      "methods": [
+        "rolling median/MAD",
+        "threshold fallback"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "packet-loss",
+      "expected": [
+        "packet_loss"
+      ],
+      "actual": [
+        "packet_loss"
+      ],
+      "missed": [],
+      "extra": [],
+      "false_alarms_before_injection": 0,
+      "first_alert_s": 1.7,
+      "all_expected_alerts_s": 1.7,
+      "incidents": 1,
+      "alerts_in_those_incidents": 8,
+      "methods": [
+        "rolling median/MAD",
+        "threshold fallback"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "disk-fill",
+      "expected": [
+        "disk"
+      ],
+      "actual": [
+        "disk"
+      ],
+      "missed": [],
+      "extra": [],
+      "false_alarms_before_injection": 0,
+      "first_alert_s": 3.6,
+      "all_expected_alerts_s": 3.6,
+      "incidents": 1,
+      "alerts_in_those_incidents": 7,
+      "methods": [
+        "rolling median/MAD",
+        "threshold fallback"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "failed-logins",
+      "expected": [
+        "failed_login"
+      ],
+      "actual": [
+        "failed_login"
+      ],
+      "missed": [],
+      "extra": [],
+      "false_alarms_before_injection": 0,
+      "first_alert_s": 2.0,
+      "all_expected_alerts_s": 2.0,
+      "incidents": 1,
+      "alerts_in_those_incidents": 1,
+      "methods": [
+        "local event summary"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "scenario": "alert-storm",
+      "expected": [
+        "cpu",
+        "latency",
+        "memory",
+        "packet_loss"
+      ],
+      "actual": [
+        "cpu",
+        "latency",
+        "memory",
+        "packet_loss"
+      ],
+      "missed": [],
+      "extra": [],
+      "false_alarms_before_injection": 0,
+      "first_alert_s": 2.0,
+      "all_expected_alerts_s": 3.9,
+      "incidents": 1,
+      "alerts_in_those_incidents": 30,
+      "methods": [
+        "rolling median/MAD",
+        "threshold fallback"
+      ],
+      "verdict": "PASS"
+    }
+  ],
+  "false_alarms": {
+    "on_decoy_hosts": {
+      "incidents": 0,
+      "alerts": 0,
+      "signals": []
+    },
+    "on_scenario_hosts_before_injection": 0,
+    "total_alerts": 0,
+    "normal_metric_windows_observed": 1392
+  },
+  "missed": 0,
+  "extra": 0,
+  "verdict": "PASS"
+}

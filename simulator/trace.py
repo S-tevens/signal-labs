@@ -4,10 +4,11 @@ stored observation -> the incident and recommendation it fed.
     python simulator/trace.py <payload_id>             # trace an existing payload
     python simulator/trace.py --latest                 # the newest payload that was sent
     python simulator/trace.py --demo                   # plant a test secret and a failed-login burst, then trace the result
+    python simulator/trace.py --demo --hold            # pause with the synthetic payload held for local inspection
     python simulator/trace.py <payload_id> --show-secrets   # reveal sensitive spans (they are masked by default)
 
-Each hop prints PASS or FAIL. Sensitive spans in raw records are masked so the output, and the evidence file written to
-docs/p3/evidence/trace-*.md, never hold a secret. The platform copy is compared field by field with what the collector
+Each hop prints PASS or FAIL. Recognized sensitive spans are masked in console output by default. Raw record text is
+never written to the evidence file; unknown secret formats cannot be reliably recognized by the masker. The platform copy is compared field by field with what the collector
 queued; the platform widens timestamps to microseconds, so this is field equality, not proof of identical wire bytes.
 An ordinary metric usually feeds no incident; that is reported, not failed, unless the run expects one (--demo does).
 Exit code: 0 = every hop passed, 1 = a hop failed, 2 = could not run.
@@ -78,12 +79,12 @@ def summarize_incident(incident: dict, payload_id: str) -> dict:
 
 
 # ---------------------------------------------------------------- the four hops
-def hop_source(lineage: dict, reveal: bool) -> tuple[bool, list[str]]:
+def hop_source(lineage: dict, reveal: bool, include_raw: bool = True) -> tuple[bool, list[str]]:
     raw = lineage.get("raw", [])
     lines = [f"payload {lineage['payload_id']} was made from {lineage.get('raw_total', len(raw))} raw record(s) held only on the collector"]
     for r in raw[:3]:
-        lines.append(f"  raw #{r['id']} (received {datetime.fromtimestamp(r['received_at'], timezone.utc).strftime('%H:%M:%S')} UTC): "
-                     + mask(r["text"][:200], r.get("spans", []), reveal))
+        summary = f"  raw #{r['id']} (received {datetime.fromtimestamp(r['received_at'], timezone.utc).strftime('%H:%M:%S')} UTC)"
+        lines.append(summary + (": " + mask(r["text"][:200], r.get("spans", []), reveal) if include_raw else ": raw text omitted from evidence"))
     rules = sorted({s["rule"] for r in raw for s in r.get("spans", [])})
     lines.append(f"  sensitive patterns found locally: {', '.join(rules) if rules else 'none'}")
     return bool(raw), lines
@@ -95,10 +96,11 @@ def hop_outgoing(lineage: dict) -> tuple[bool, list[str]]:
     leaks = leaked(payload, lineage.get("raw", []))
     sent = f"sent at {datetime.fromtimestamp(lineage['sent_at'], timezone.utc).strftime('%H:%M:%S')} UTC" if lineage.get("sent_at") else "not sent yet"
     lines = [f"status {lineage['status']} ({sent})",
-             f"SHA-256 of the exact bytes {lineage.get('digest')} {'(recomputed, matches)' if digest_ok else '(DOES NOT MATCH the stored payload)'}",
-             "fields that left: " + ", ".join(sorted(payload)),
+             f"SHA-256 of canonical queued payload bytes {lineage.get('digest')} {'(recomputed, matches)' if digest_ok else '(DOES NOT MATCH the stored payload)'}",
+             "queued payload fields: " + ", ".join(sorted(payload)),
              f"sensitive values from the raw record found in the payload: {leaks if leaks else 'none'}"]
-    return digest_ok and not leaks, lines
+    lines.append("digest covers one canonical payload, not the full batched HTTP request")
+    return lineage.get("status") == "sent" and digest_ok and not leaks, lines
 
 
 def hop_received(payload: dict, stored: dict | None) -> tuple[bool, list[str]]:
@@ -117,6 +119,7 @@ def hop_incident(payload_id: str, expect: bool) -> tuple[bool, list[str]]:
     if not incidents:
         return (not expect), ["no retained incident signal references this payload" + (" (expected one)" if expect else " (normal for an ordinary measurement)")]
     lines = []
+    actionable = False
     for m in incidents[:2]:
         code, inc = sc._call(f"{sc.SAAS}/v1/objects/incident/{m['incident_id']}", headers=AUTH)
         s = summarize_incident(inc if code == 200 else {"id": m["incident_id"], "properties": {"signals": m["signals"]}}, payload_id)
@@ -124,8 +127,9 @@ def hop_incident(payload_id: str, expect: bool) -> tuple[bool, list[str]]:
         for sig in s["signals_from_this_payload"]:
             lines.append(f"  signal from this payload: {sig}")
         lines.append(f"  recommendation: {json.dumps(s['recommendation']) if s['recommendation'] else 'none shown'}")
+        actionable = actionable or bool(s["signals_from_this_payload"] and (s["recommendation"] or {}).get("action"))
     lines.append("  this is a recommendation from rules and statistics, not proof of a root cause")
-    return True, lines
+    return actionable, lines
 
 
 # ---------------------------------------------------------------- driver
@@ -136,26 +140,57 @@ def fetch_lineage(payload_id: str) -> dict:
     return body
 
 
-def demo_payload() -> str:
-    """Send a failed-login burst containing a test secret on a unique host, and return the burst's payload ID."""
+def demo_payload(hold: bool = False) -> str:
+    """Inject a synthetic failed-login burst; optionally pause for the local egress proof."""
     tag = uuid.uuid4().hex[:6]
     host, password = f"trace-demo-{tag}", f"Tr4ce!{tag}Pw"
     before = {e["payload_id"] for e in verify.collector_egress()}
     now = sc.iso(time.time() - 6)
     lines = [f'ts={now} host={host} msg="Failed password for invalid user admin from 203.0.113.{i + 1} port 22 password={password}"' for i in range(30)]
-    print(f"  injecting 30 failed logins on {host}; each line carries a test password ...")
-    sc.collector_send(lines)
-    deadline = time.time() + 40
-    while time.time() < deadline:
-        time.sleep(1.5)
-        for e in verify.collector_egress():
-            if e["payload_id"] in before or "event" not in e["payload"]:
-                continue
-            lin = fetch_lineage(e["payload_id"])
-            if any(password in r["text"] for r in lin.get("raw", [])) and lin["status"] == "sent":
-                time.sleep(3)  # let the platform finish correlating
-                return e["payload_id"]
-    raise RuntimeError("the demo burst did not become a sent payload in time")
+    pid = None
+    if hold:
+        status, buffer = sc._call(f"{sc.COLLECTOR}/local/buffer")
+        if status != 200 or not isinstance(buffer,dict): raise RuntimeError('could not read collector hold state')
+        if (buffer.get('hold') or {}).get('held'): raise RuntimeError('collector delivery is already held; release it deliberately before using --hold')
+        code, _ = sc._call(f"{sc.COLLECTOR}/local/hold", b"", {"X-Requested-With":"local-ui"}, "POST")
+        if code != 200: raise RuntimeError(f"could not hold collector delivery (HTTP {code})")
+    try:
+        print(f"  injecting 30 synthetic failed logins on {host}; each line carries a test password ...")
+        sc.collector_send(lines)
+        deadline = time.time() + 40
+        while time.time() < deadline:
+            time.sleep(1.5)
+            for e in verify.collector_egress():
+                if e["payload_id"] in before or "event" not in e["payload"]: continue
+                lin = fetch_lineage(e["payload_id"])
+                if not any(password in r["text"] for r in lin.get("raw", [])): continue
+                if hold and lin["status"] == "pending":
+                    code, _ = sc._call(f"{sc.SAAS}/v1/objects/observation/{e['payload_id']}", headers=AUTH)
+                    if code != 404: raise RuntimeError(f"expected no stored observation while held; got HTTP {code}")
+                    if leaked(lin['payload'],lin.get('raw',[])): raise RuntimeError('recognized sensitive value found in queued payload')
+                    pid=e["payload_id"]
+                    print(f"  HELD payload {pid}: open the collector-local egress panel to inspect the raw record and pending payload.")
+                    print("  The platform returned 404 for this ID. Press Enter to release; hold also auto-expires after five minutes.")
+                    try: input()
+                    except EOFError: raise RuntimeError('interactive input ended; collector hold will be released') from None
+                    break
+                if not hold and lin["status"] == "sent":
+                    pid=e["payload_id"]
+                    break
+            if pid: break
+        if not pid: raise RuntimeError("the demo burst did not become a suitable payload in time")
+    finally:
+        if hold:
+            code, _ = sc._call(f"{sc.COLLECTOR}/local/release", b"", {"X-Requested-With":"local-ui"}, "POST")
+            if code != 200: print(f"WARNING: could not release collector hold (HTTP {code}); check the local panel.")
+    if hold:
+        deadline=time.time()+40
+        while time.time()<deadline:
+            if fetch_lineage(pid).get('status')=='sent': break
+            time.sleep(1)
+        else: raise RuntimeError('the held payload was not delivered after release')
+    time.sleep(3)  # let the platform finish correlating
+    return pid
 
 
 def main() -> int:
@@ -164,10 +199,12 @@ def main() -> int:
     ap.add_argument("--latest", action="store_true")
     ap.add_argument("--demo", action="store_true")
     ap.add_argument("--show-secrets", action="store_true")
+    ap.add_argument("--hold", action="store_true", help="pause a synthetic --demo payload in the local egress panel")
     args = ap.parse_args()
+    if args.hold and not args.demo: ap.error("--hold requires --demo")
     try:
         if args.demo:
-            pid = demo_payload()
+            pid = demo_payload(hold=args.hold)
         elif args.latest:
             sent = [e for e in verify.collector_egress(200) if e["status"] == "sent"]
             if not sent:
@@ -184,8 +221,8 @@ def main() -> int:
         return 2
     stored = verify.platform_observation(pid)
     hops = [
-        ("1. Source: raw record on the collector (local only)", *hop_source(lineage, args.show_secrets)),
-        ("2. Outgoing: the exact payload that left", *hop_outgoing(lineage)),
+        ("1. Source: raw record on the collector (local only)", *hop_source(lineage, False, include_raw=False)),
+        ("2. Outgoing: queued payload and delivery status", *hop_outgoing(lineage)),
         ("3. Received: the platform's stored observation", *hop_received(lineage["payload"], stored)),
         ("4. Incident and recommendation", *hop_incident(pid, expect=args.demo)),
     ]
@@ -196,7 +233,14 @@ def main() -> int:
     ok_all = all(h[1] for h in hops)
     out.append(f"**RESULT: {'PASS' if ok_all else 'FAIL'}**")
     text = "\n".join(out)
-    print("\n" + text)
+    # Raw text is displayed only in the local console. The saved evidence omits it even
+    # if an unrecognized secret was not detected by the pattern-based redactor.
+    _, console_lines = hop_source(lineage, args.show_secrets, include_raw=True)
+    _, safe_lines = hop_source(lineage, False, include_raw=False)
+    display = text
+    for safe_line, console_line in zip(safe_lines, console_lines):
+        display = display.replace(safe_line, console_line, 1)
+    print("\n" + display)
     EVIDENCE.mkdir(parents=True, exist_ok=True)
     path = EVIDENCE / f"trace-{pid[:8]}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.md"
     path.write_text(text, encoding="utf-8")

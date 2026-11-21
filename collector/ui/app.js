@@ -211,7 +211,7 @@ function renderDetail(d) {
   } else if (leaked) {
     verdict = h("p", { class: "verdict bad", text: "LEAK: " + leaked + " of " + findings.length + " sensitive value(s) appear in the payload." });
   } else {
-    verdict = h("p", { class: "verdict good", text: "✔ " + findings.length + " sensitive value(s) in the raw records. 0 appear in the payload that left." });
+    verdict = h("p", { class: "verdict good", text: "✔ " + findings.length + " sensitive value(s) in the inspected raw records. 0 appear in the queued payload." });
   }
 
   // Left: what stayed.
@@ -239,17 +239,17 @@ function renderDetail(d) {
       h("td", {}, h("span", { class: "chip mark-" + (d.markings[key] || "none"), text: d.markings[key] || "unlisted" })),
     ),
   );
-  const openReceived = h("button", { type: "button", text: "Open this payload on the dashboard" });
+  const openReceived = h("button", { type: "button", text: "Trace this payload on the dashboard" });
   openReceived.addEventListener("click", () => {
     try {
       const target = new URL($("#dashboard-url").value);
       if (!["http:", "https:"].includes(target.protocol) || target.username || target.password) throw new Error("Use an HTTP or HTTPS dashboard URL without credentials.");
-      target.hash = "/received?id=" + encodeURIComponent(d.payload.payload_id);
+      target.hash = "/trace?id=" + encodeURIComponent(d.payload.payload_id);
       window.open(target.href, "_blank", "noopener,noreferrer");
     } catch (err) { showError("Invalid dashboard URL: " + err.message); }
   });
   const right = h("section", { class: "panel sent" },
-    h("h2", { text: "Left the environment" }),
+    h("h2", { text: d.status === "sent" ? "Sent metadata" : "Queued metadata" }),
     h("p", { class: "sub" }, "Queued payload fields · status ", h("strong", { text: d.status }), " · " + d.attempts + " attempt(s)"),
     openReceived,
     h("table", { class: "fields" }, h("tbody", {}, ...rows)),

@@ -374,6 +374,21 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
     def incident_evidence(request:Request,ident:str):
         who=need(request,'read')
         with store.connect(who.tenant,lock=False) as db: return incident_lineage(db,who,ident)
+    @app.get('/v1/demo/trace/{ident}')
+    def demo_trace(request:Request,ident:str):
+        who=need(request,'read')
+        with store.connect(who.tenant,lock=False) as db:
+            observation=object_detail(db,who,'observation',ident)
+            lineage=payload_lineage(db,who,ident)
+            row=db.execute('SELECT received FROM payloads WHERE id=?',(ident,)).fetchone()
+            incidents=[]
+            for match in lineage['incidents']:
+                incident=object_detail(db,who,'incident',match['incident_id'])['properties']
+                incidents.append({'id':match['incident_id'],'severity':incident.get('severity'),
+                    'signals':match['signals'],'recommendation':incident.get('recommendation'),
+                    'alert_count':incident.get('alert_count')})
+        return {'payload':observation['properties'],'received_ts_utc':utc(row['received']) if row else None,
+                'incidents':incidents,'note':'Only retained metadata and incident links are shown. Raw records remain local; stored fields are normalized and are not proof of identical wire bytes.'}
     @app.get('/v1/lineage/payload/{ident}')
     def payload_evidence(request:Request,ident:str):
         who=need(request,'read')
