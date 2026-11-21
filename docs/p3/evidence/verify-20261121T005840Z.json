@@ -10,15 +10,13 @@
     "egress_log_digest_mismatch": 0,
     "at_platform_but_never_sent_by_collector": 0,
     "unexplained_examples": [],
-    "not_sent_by_status": {
-      "pending": 15
-    },
+    "not_sent_by_status": {},
     "verdict": "PASS",
     "checked_newest": 300
   },
   {
     "check": "canary",
-    "run_tag": "45f78c20",
+    "run_tag": "4328e8ae",
     "canaries_planted": {
       "password": "16 characters",
       "api_key": "28 characters",
@@ -29,7 +27,7 @@
       "hostname": "20 characters",
       "free_text": "24 characters"
     },
-    "payloads_produced_by_the_run": 41,
+    "payloads_produced_by_the_run": 52,
     "controls": [
       {
         "name": "scanner finds a planted canary (plain and JSON-escaped)",
@@ -43,7 +41,7 @@
       {
         "name": "the canary lines produced payloads to check",
         "passed": true,
-        "detail": "41 payload(s)"
+        "detail": "52 payload(s)"
       },
       {
         "name": "every scanned surface contains a known real value (it was actually read)",
@@ -54,28 +52,28 @@
     "surfaces": [
       {
         "name": "collector egress log (everything that left)",
-        "bytes_scanned": 3315684,
+        "bytes_scanned": 1936808,
         "hits": [],
         "required": true,
         "status": "PASS"
       },
       {
-        "name": "platform API (98 endpoints, dashboard role)",
-        "bytes_scanned": 12768201,
+        "name": "platform API (120 endpoints, dashboard role)",
+        "bytes_scanned": 1700113,
         "hits": [],
         "required": true,
         "status": "PASS"
       },
       {
         "name": "platform database (16 tables, all tenants)",
-        "bytes_scanned": 84147748,
+        "bytes_scanned": 1614869,
         "hits": [],
         "required": true,
         "status": "PASS"
       },
       {
-        "name": "platform and proxy logs (15 files)",
-        "bytes_scanned": 657388,
+        "name": "platform and proxy logs (17 files)",
+        "bytes_scanned": 1324673,
         "hits": [],
         "required": false,
         "status": "PASS"

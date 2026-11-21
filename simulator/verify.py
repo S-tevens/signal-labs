@@ -75,7 +75,7 @@ def differing_fields(sent: dict, stored: dict) -> list[str]:
     return sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
 
 
-def match_summary(egress_rows: list[dict], stored: dict[str, dict | None], platform_ids_for_collector: list[str] | None = None) -> dict:
+def match_summary(egress_rows: list[dict], stored: dict[str, dict | None], platform_ids_for_collector: list[str] | None = None, known_ids: set[str] | None = None) -> dict:
     """Pure comparison. `stored` maps payload_id -> the platform's copy (None when the platform has no such payload)."""
     sent = [r for r in egress_rows if r["status"] == "sent"]
     others: dict[str, int] = {}
@@ -98,7 +98,8 @@ def match_summary(egress_rows: list[dict], stored: dict[str, dict | None], platf
             mismatched.append({"payload_id": pid, "fields": ["(digest)"]})
         else:
             ok += 1
-    known = {r["payload_id"] for r in egress_rows}
+    # Every payload the collector's log holds counts as known, not only the newest ones compared field by field.
+    known = set(known_ids) if known_ids is not None else {r["payload_id"] for r in egress_rows}
     unexplained = sorted(set(platform_ids_for_collector or []) - known)
     passed = bool(sent) and not missing and not mismatched and not bad_digest and not unexplained
     return {
@@ -217,7 +218,10 @@ def run_match(max_rows: int = 300) -> dict:
         listing = {o["id"]: normalize_ts(o["properties"].get("event_ts_utc", "")) for o in (body or []) if isinstance(o, dict)}
         ids = [i for i in ids if listing.get(i, "") >= oldest]
     complete = len(rows) < 5000
-    result = match_summary([r for r in rows if r["payload_id"] in stored or r["status"] != "sent"], stored, ids if complete else None)
+    # Read the collector's log again now: a payload the platform holds was in the collector's outbox first, and a live collector
+    # keeps making new ones while the platform is being listed.
+    known = {r["payload_id"] for r in collector_egress()}
+    result = match_summary([r for r in rows if r["payload_id"] in stored or r["status"] != "sent"], stored, ids if complete else None, known)
     result["checked_newest"] = len(sent)
     return {"check": "match", **result}
 

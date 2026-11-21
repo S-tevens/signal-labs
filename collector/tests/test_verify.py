@@ -92,3 +92,10 @@ def test_canary_lines_contain_every_canary_value():
     text = "\n".join(verify.canary_lines("c0ffee12", c))
     for label, value in c.items():
         assert value in text, label
+
+
+def test_older_payloads_the_collector_did_send_are_not_reported_as_unexplained():
+    old = {**P, "payload_id": "old"}
+    r = verify.match_summary([row()], {"p1": stored_copy()}, platform_ids_for_collector=["p1", "old"], known_ids={"p1", "old"})
+    assert r["verdict"] == "PASS" and r["at_platform_but_never_sent_by_collector"] == 0
+    assert verify.match_summary([row()], {"p1": stored_copy()}, platform_ids_for_collector=["p1", "ghost"], known_ids={"p1", "old"})["verdict"] == "FAIL"
