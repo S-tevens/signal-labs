@@ -86,6 +86,21 @@ class Mapping:
                 continue
         return None
 
+    # ---- nested records (OpenTelemetry, Elastic ECS, Telegraf, Datadog and similar) ----
+    def normalize_nested(self, data: dict, line: str | None = None) -> list[dict]:
+        """Nested objects become dotted keys (`system.cpu.total.pct`); a list of objects (`metrics: [{name, value}, ...]`)
+        becomes one record per element, sharing the host and time of the object around it."""
+        flat, lists = flatten(data)
+        if not lists:
+            return self.normalize(flat, line)
+        context = {k: v for k, v in flat.items() if k.lower() in self.host_fields or k.lower() in self.time_fields}
+        records = [r for r in self.normalize(flat, line) if r["kind"] == "metric"]
+        for _path, items in lists:
+            for item in items[:2000]:
+                item_flat, _ = flatten(item)
+                records += [r for r in self.normalize({**context, **item_flat}, line) if r["kind"] == "metric"]
+        return records or self.normalize(flat, line)
+
     # ---- records ----
     def normalize(self, data: dict, line: str | None = None) -> list[dict]:
         """One field map -> zero or more normalized records. Metrics may arrive as name/value or as one column each."""
@@ -100,8 +115,10 @@ class Mapping:
                 records.append({**base, "kind": "metric", **self._convert(str(name), value)})
             lowered = {str(k).lower(): v for k, v in data.items()}
             for key, value in lowered.items():  # wide row: one column per metric
-                if key in self.metrics and key not in self.name_fields and key not in self.value_fields and value not in (None, ""):
-                    records.append({**base, "kind": "metric", **self._convert(key, value)})
+                leaf = key.rsplit(".", 1)[-1] if "." in key else None  # `data.cpu_pct` counts as `cpu_pct` when the full path is not mapped
+                alias = key if key in self.metrics else leaf if leaf in self.metrics else None
+                if alias and key not in self.name_fields and key not in self.value_fields and leaf not in self.value_fields and leaf not in self.name_fields and value not in (None, "") and not isinstance(value, bool):
+                    records.append({**base, "kind": "metric", **self._convert(alias, value)})
         if not records:
             message = self.pick(data, self.message_fields)
             records.append({**base, "kind": "log", "message": str(message) if message is not None else (line or "")})
@@ -130,6 +147,21 @@ class Mapping:
         if len(row) != len(header):
             return None
         return self.normalize(dict(zip(header, row)), line)
+
+
+def flatten(obj: dict, prefix: str = "", out: dict | None = None, lists: list | None = None, depth: int = 0) -> tuple[dict, list]:
+    """Scalars become dotted keys; lists of objects are returned separately. Depth is capped so a hostile record cannot recurse."""
+    out = {} if out is None else out
+    lists = [] if lists is None else lists
+    for k, v in obj.items():
+        key = f"{prefix}{k}"
+        if isinstance(v, dict) and depth < 6:
+            flatten(v, key + ".", out, lists, depth + 1)
+        elif isinstance(v, list) and v and all(isinstance(x, dict) for x in v) and depth < 6:
+            lists.append((key, v))
+        elif not isinstance(v, (dict, list)):
+            out[key] = v
+    return out, lists
 
 
 def _aware(dt: datetime) -> datetime:

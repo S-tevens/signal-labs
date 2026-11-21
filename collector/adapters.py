@@ -15,15 +15,20 @@ from pathlib import Path
 
 from .config import Config
 from .pipeline import Pipeline
+from .pull import PullAdapters
+from .push import ip_allowed, parse_allow
 
 log = logging.getLogger("collector.adapters")
 
 
 class _Udp(asyncio.DatagramProtocol):
-    def __init__(self, pipeline: Pipeline, max_bytes: int):
-        self.pipeline, self.max_bytes = pipeline, max_bytes
+    def __init__(self, pipeline: Pipeline, max_bytes: int, allow: list):
+        self.pipeline, self.max_bytes, self.allow = pipeline, max_bytes, allow
 
     def datagram_received(self, data: bytes, addr) -> None:
+        if not ip_allowed(self.allow, addr[0]):
+            self.pipeline.counters["push_refused"] += 1
+            return
         if len(data) > self.max_bytes:
             self.pipeline.counters["oversize"] += 1
             return
@@ -38,12 +43,14 @@ class Adapters:
         self._servers: list = []
         self._tasks: list[asyncio.Task] = []
         self.ports: dict[str, int] = {}
+        self.pull = PullAdapters(cfg, pipeline)
+        self.allow = parse_allow(cfg.ingest_allow)
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
         c = self.cfg
         if c.udp_syslog_port:
-            transport, _ = await loop.create_datagram_endpoint(lambda: _Udp(self.pipeline, c.max_line_chars * 4), local_addr=(c.adapter_bind, c.udp_syslog_port))
+            transport, _ = await loop.create_datagram_endpoint(lambda: _Udp(self.pipeline, c.max_line_chars * 4, self.allow), local_addr=(c.adapter_bind, c.udp_syslog_port))
             self._transports.append(transport)
             self.ports["udp"] = transport.get_extra_info("sockname")[1]
         if c.tcp_lines_port:
@@ -52,10 +59,16 @@ class Adapters:
             self.ports["tcp"] = server.sockets[0].getsockname()[1]
         for path in [p.strip() for p in c.follow_files.split(",") if p.strip()]:
             self._tasks.append(asyncio.create_task(self._follow(Path(path))))
+        await self.pull.start()
         if self.ports or self._tasks:
             log.info("input adapters: %s, following %d file(s)", self.ports, len(self._tasks))
 
+    def status(self) -> dict:
+        """Where data comes in from, for the egress panel: listeners, followed files and pulled streams."""
+        return {"listening": self.ports, "following": [p.strip() for p in self.cfg.follow_files.split(",") if p.strip()], "pulling": self.pull.status()}
+
     async def stop(self) -> None:
+        await self.pull.stop()
         for t in self._tasks:
             t.cancel()
         for t in self._transports:
@@ -65,6 +78,11 @@ class Adapters:
 
     async def _tcp_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         state: dict = {}
+        peer = writer.get_extra_info("peername")
+        if not ip_allowed(self.allow, peer[0] if peer else ""):
+            self.pipeline.counters["push_refused"] += 1
+            writer.close()
+            return
         try:
             while True:
                 try:

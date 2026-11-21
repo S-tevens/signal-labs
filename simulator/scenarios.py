@@ -73,8 +73,18 @@ def _poll(url):
         return 0, None
 
 
+def ingest_auth():
+    """The header our tools send to the collector's ingest routes: the push token, when the collector was started with
+    -AcceptPush (INGEST_TOKEN in the environment, or data/ingest.token). Empty when the collector is open (the default)."""
+    token = os.getenv("INGEST_TOKEN", "")
+    if not token:
+        f = Path(__file__).resolve().parents[1] / "data" / "ingest.token"
+        token = f.read_text(encoding="ascii").strip() if f.exists() else ""
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def collector_send(lines):
-    return _call(f"{COLLECTOR}/ingest", "\n".join(lines).encode())[1]
+    return _call(f"{COLLECTOR}/ingest", "\n".join(lines).encode(), ingest_auth())[1]
 
 
 def saas_get(path):
@@ -355,6 +365,159 @@ def urllib_headers(url, token):
         return {k.lower(): v for k, v in r.getheaders()}
 
 
+def stream():
+    """A stand-in for the organizers' stream: an authenticated feed in a format we have never seen, pulled by a collector."""
+    expect("the collector connects out to the feed with its token, maps the unfamiliar fields by configuration only, keeps the secrets local and the platform stores the result")
+    import http.server
+    import threading
+
+    root = Path(__file__).resolve().parents[1]
+    data_dir = root / "data" / "stream-demo"
+    shutil.rmtree(data_dir, ignore_errors=True)
+    data_dir.mkdir(parents=True)
+    tag = uuid.uuid4().hex[:6]
+    host, token = f"feed-{tag}", "organizer-demo-token"
+    results = []
+
+    def check(name, ok, detail=""):
+        results.append(ok)
+        print(f"  {'PASS' if ok else 'FAIL'}: {name}" + (f"  [{detail}]" if detail else ""))
+
+    class Feed(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.0"
+
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            if self.headers.get("Authorization") != f"Bearer {token}":
+                self.send_response(401)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.end_headers()
+            try:
+                for i in range(40):  # one reading a second for 40 s, in a format the collector has no code for
+                    record = {"timestamp": int(time.time() * 1000), "node": host, "cpu_usage": 40 + i % 5, "mem_used_pct": 55.0,
+                              "net_rx_kbps": 84000, "response_time_s": 0.2, "region_tag": "in-west", "queue_len": 3}
+                    if i % 3 == 0:
+                        record["message"] = "login ok user=alice@corp.com password=Hunter2! token=abc123def456"
+                    self.wfile.write((json.dumps(record) + "\n").encode())
+                    self.wfile.flush()
+                    time.sleep(1)
+            except OSError:
+                pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Feed)
+    feed_port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    mapping = (root / "collector" / "mapping.yaml").read_text(encoding="utf-8").replace(
+        "metrics:\n", "metrics:\n  net_rx_kbps: {name: bandwidth_mbps, scale: 0.001}\n  response_time_s: {name: latency_ms, scale: 1000}\n", 1)
+    (data_dir / "mapping.yaml").write_text(mapping, encoding="utf-8")
+    port = 8104
+    env = {**os.environ, "DATA_DIR": str(data_dir / "collector"), "MAPPING_FILE": str(data_dir / "mapping.yaml"), "HOST_TELEMETRY": "0", "REALTIME": "1",
+           "PROFILE": "realtime", "STREAM_URL": f"http://127.0.0.1:{feed_port}/stream?key=feedsecret", "STREAM_AUTH": f"Bearer {token}"}
+    log_dir = root / "data" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log = open(log_dir / "stream-demo.log", "wb")
+    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "collector.main:app", "--port", str(port)], cwd=root, env=env, stdout=log, stderr=log)
+    base = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(30):
+            time.sleep(1)
+            if _poll(f"{base}/healthz")[0] == 200:
+                break
+        else:
+            print("  the demo collector did not start; see data/logs/stream-demo.log")
+            return
+        print(f"  feed on port {feed_port} (needs a token), collector on {port} pulling from it; waiting for data ...")
+        info = {}
+        for _ in range(30):
+            time.sleep(1)
+            info = _call(f"{base}/local/stream")[1] or {}
+            if info.get("pulling") and info["pulling"][0]["lines_received"] >= 8:
+                break
+        pulled = (info.get("pulling") or [{}])[0]
+        check("the collector connected to the feed and is receiving", pulled.get("state") == "connected" and pulled.get("lines_received", 0) >= 8, f"{pulled.get('lines_received')} lines")
+        check("the feed's key and token are not shown anywhere", "feedsecret" not in json.dumps(info) and token not in json.dumps(info), pulled.get("target"))
+        time.sleep(WINDOW + 4)
+        egress = _call(f"{base}/local/egress?limit=300")[1] or []
+        mine = [e for e in egress if "metric" in e["payload"]]
+        names = {e["payload"]["metric"]["name"] for e in mine}
+        check("unfamiliar field names became the standard metrics", {"cpu_pct", "mem_pct", "bandwidth_mbps", "latency_ms"} <= names, ", ".join(sorted(names)))
+        bw = [e["payload"]["metric"]["value"] for e in mine if e["payload"]["metric"]["name"] == "bandwidth_mbps"]
+        lat = [e["payload"]["metric"]["value"] for e in mine if e["payload"]["metric"]["name"] == "latency_ms"]
+        check("units were converted by configuration (84000 kbps = 84 mbps, 0.2 s = 200 ms)", bool(bw) and bool(lat) and all(abs(v - 84.0) < 0.5 for v in bw) and all(abs(v - 200.0) < 1 for v in lat))
+        blob = json.dumps(egress)
+        check("secrets and unknown fields stayed local", not any(x in blob for x in ("Hunter2", "alice@corp.com", "abc123def456", "in-west", "queue_len", host)))
+        raw = json.dumps(_call(f"{base}/local/raw?limit=200")[1])
+        check("the raw records, with the secrets, are held locally for the egress panel", "Hunter2" in raw)
+        ids = [e["payload_id"] for e in mine if e["status"] == "sent"][:5]
+        found = [i for i in ids if _call(f"{SAAS}/v1/objects/observation/{i}", headers={"Authorization": f"Bearer {DASH}"})[0] == 200]
+        check("the platform stored what was sent", bool(ids) and len(found) == len(ids), f"{len(found)} of {len(ids)} checked")
+    finally:
+        proc.terminate()
+        server.shutdown()
+    print("  RESULT:", "PASS" if all(results) else "FAIL", f"({sum(results)} of {len(results)} checks)")
+
+
+def push():
+    """Push to the collector the way the organizers would: through its network address, with the token, in several formats."""
+    expect("pushing needs the token; each interface works; the local views stay closed to the network; nothing sensitive leaves")
+    import gzip
+    import socket
+
+    token_file = Path(__file__).resolve().parents[1] / "data" / "ingest.token"
+    if not token_file.exists():
+        print("  Start the collector for pushing first:  scripts\\run-local.ps1 -Restart -AcceptPush")
+        return
+    token = token_file.read_text(encoding="ascii").strip()
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("10.255.255.255", 1))
+        lan = probe.getsockname()[0]
+    except OSError:
+        lan = "127.0.0.1"
+    finally:
+        probe.close()
+    base = f"http://{lan}:8101"
+    results = []
+
+    def check(name, ok, detail=""):
+        results.append(ok)
+        print(f"  {'PASS' if ok else 'FAIL'}: {name}" + (f"  [{detail}]" if detail else ""))
+
+    def post(path, data, headers=None, auth=True):
+        h = {"Authorization": f"Bearer {token}"} if auth else {}
+        return _call(f"{base}{path}", data if isinstance(data, bytes) else data.encode(), {**h, **(headers or {})}, "POST")
+
+    print(f"  pushing to {base} (this machine's network address)")
+    host, now = f"push-{uuid.uuid4().hex[:6]}", int(time.time())
+    check("no token is refused (401)", post("/ingest", "x", auth=False)[0] == 401)
+    check("a wrong token is refused (401)", post("/ingest", "x", {"Authorization": "Bearer nope"}, auth=False)[0] == 401)
+    check("the local views are closed to the network even with the token (403)", _call(f"{base}/local/raw", headers={"Authorization": f"Bearer {token}"})[0] == 403 or lan == "127.0.0.1")
+    check("HTTP lines are accepted", post("/ingest", f"ts={now} host={host} metric=cpu_pct value=41")[0] == 200)
+    check("a JSON array is accepted", post("/ingest", json.dumps([{"ts": now, "host": host, "metric": "mem_pct", "value": 52}, {"ts": now, "host": host, "metric": "disk_pct", "value": 63}]))[0] == 200)
+    check("gzip is accepted", post("/ingest", gzip.compress(f"ts={now} host={host} metric=latency_ms value=74".encode()), {"Content-Encoding": "gzip"})[0] == 200)
+    check("InfluxDB line protocol (Telegraf) answers 204", post("/write?db=telegraf", f"cpu,host={host} usage_user=85 {now * 10**9}")[0] == 204)
+    otlp = {"resourceMetrics": [{"resource": {"attributes": [{"key": "host.name", "value": {"stringValue": host}}]}, "scopeMetrics": [{"metrics": [
+        {"name": "system.memory.utilization", "gauge": {"dataPoints": [{"asDouble": 0.91, "timeUnixNano": str(now * 10**9)}]}}]}]}]}
+    check("OpenTelemetry JSON metrics are accepted", post("/v1/metrics", json.dumps(otlp), {"Content-Type": "application/json"})[0] == 200)
+    check("a secret pushed with the data is accepted and kept local", post("/ingest", f'ts={now} host={host} msg="login ok user=alice@corp.com password=Hunter2! token=abc123def456"')[0] == 200)
+    time.sleep(WINDOW + 5)
+    egress = _call(f"http://127.0.0.1:8101/local/egress?limit=400")[1] or []
+    blob = json.dumps(egress)
+    names = {e["payload"]["metric"]["name"] for e in egress if "metric" in e["payload"]}
+    check("every format became standard metrics", {"cpu_pct", "mem_pct", "disk_pct", "latency_ms"} <= names, ", ".join(sorted(names)))
+    check("the secrets never left", not any(x in blob for x in ("Hunter2", "alice@corp.com", "abc123def456", host)))
+    ids = [e["payload_id"] for e in egress if e["status"] == "sent" and "metric" in e["payload"]][:5]
+    found = [i for i in ids if _call(f"{SAAS}/v1/objects/observation/{i}", headers={"Authorization": f"Bearer {DASH}"})[0] == 200]
+    check("the platform stored what was sent", bool(ids) and len(found) == len(ids), f"{len(found)} of {len(ids)} checked")
+    print("  RESULT:", "PASS" if all(results) else "FAIL", f"({sum(results)} of {len(results)} checks)")
+
+
 def failed_logins():
     expect("one auth_failure_burst event (count=30, critical) and no raw login records exported")
     collector_send(failed_login_lines("web-1", 30))
@@ -551,8 +714,8 @@ def flood():
         log.close()
 
 
-def collector_send_to(base, lines):
-    return _call(f"{base}/ingest", "\n".join(lines).encode())[1]
+def collector_send_to(base, lines, headers=None):
+    return _call(f"{base}/ingest", "\n".join(lines).encode(), headers)[1]
 
 
 def enroll_demo():
@@ -719,6 +882,8 @@ SCENARIOS = {
     "hold": hold,
     "tenants": tenants,
     "rbac": rbac,
+    "stream": stream,
+    "push": push,
 }
 
 

@@ -116,6 +116,15 @@ def _post(path: str, data: bytes = b"", headers: dict | None = None) -> bool:
         return False
 
 
+def _auth() -> dict:
+    """The push token, when the collector was started with -AcceptPush."""
+    token = os.getenv("INGEST_TOKEN", "")
+    f = Path(__file__).resolve().parents[1] / "data" / "ingest.token"
+    if not token and f.exists():
+        token = f.read_text(encoding="ascii").strip()
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def play(rows: list[dict], speed: float = 1.0, log=print) -> dict:
     start = time.time()
     sent = failed = 0
@@ -132,7 +141,7 @@ def play(rows: list[dict], speed: float = 1.0, log=print) -> dict:
         stamp = (datetime.fromtimestamp(start + offset / speed, timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
         lines = [r["line"].replace("@T@", stamp) for r in batch if "line" in r]
         if lines:
-            ok = _post("/ingest", "\n".join(lines).encode())
+            ok = _post("/ingest", "\n".join(lines).encode(), _auth())
             sent, failed = sent + (len(lines) if ok else 0), failed + (0 if ok else len(lines))
         for r in batch:
             if r.get("action") == "link":

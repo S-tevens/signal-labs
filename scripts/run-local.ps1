@@ -24,6 +24,7 @@ param(
   [switch]$Status,
   [switch]$Tls,               # HTTPS between collector and SaaS, with a private dev CA (needs: pip install cryptography)
   [switch]$NoHostTelemetry,   # do not read this machine's CPU, memory, disk, bandwidth or probe the network
+  [switch]$AcceptPush,        # let OTHER machines send their stream to this collector (a token is required; see scripts\push-info.ps1)
   [switch]$NoProxy,           # send straight to replica 1 instead of through the failover proxy (port 8080)
   # Collector timing preset (see collector/config.py). "realtime" is the default here because it is the one that
   # measured under the 10 s dashboard target; "default" is the library's original 5 s window.
@@ -193,7 +194,17 @@ $env:SAAS_URL = $saasUrl
 $env:DATA_DIR = (Join-Path $data "collector")
 $env:PROFILE = $Profile
 $env:HEARTBEAT_INTERVAL_S = "5"
-Start-Svc "collector" $python @("-m", "uvicorn", "collector.main:app", "--port", "8101") "http://127.0.0.1:8101/healthz"
+$collectorArgs = @("-m", "uvicorn", "collector.main:app", "--port", "8101")
+if ($AcceptPush) {
+  # Listen on every interface. Pushing then needs the token in data\ingest.token (generated once, git-ignored); the local
+  # views under /local stay limited to this machine whatever the interface.
+  $tokenFile = Join-Path $data "ingest.token"
+  if (-not (Test-Path $tokenFile)) { -join ((1..40) | ForEach-Object { "{0:x}" -f (Get-Random -Maximum 16) }) | Set-Content $tokenFile -Encoding ascii }
+  $env:INGEST_TOKEN = (Get-Content $tokenFile -Raw).Trim()
+  $env:ADAPTER_BIND = "0.0.0.0"; $env:UDP_SYSLOG_PORT = "5514"; $env:TCP_LINES_PORT = "5515"
+  $collectorArgs += @("--host", "0.0.0.0")
+}
+Start-Svc "collector" $python $collectorArgs "http://127.0.0.1:8101/healthz"
 
 if (-not $NoDashboard) {
   $dash = Join-Path $root "dashboard"
@@ -228,6 +239,7 @@ if ($ok) { Write-Host "Stack is up." -ForegroundColor Green } else { Write-Host 
   @{ n = "Sign-ins (dev users)"; u = "data\dev-users.txt  (one per role; passwords are generated and git-ignored)" },
   @{ n = "Logs"; u = "data\logs" }
 ) | ForEach-Object { "{0,-20} {1}" -f $_.n, $_.u }
+if ($AcceptPush) { Write-Host ""; Write-Host "The collector accepts pushed data from other machines (token required). Run .\scripts\push-info.ps1 for the addresses to give the organizers." -ForegroundColor Yellow }
 Write-Host ""
 Write-Host "Try a scenario:  .\scripts\demo.ps1 failed-logins     Stop:  .\scripts\stop-local.ps1"
 if (-not $ok) { exit 1 }

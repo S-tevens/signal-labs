@@ -106,6 +106,7 @@ async function loadStages() {
       ["Aggregated into windows", s.aggregated_into_windows, s.windows_closed + " windows closed"],
       ["Queued to send", s.queued, "failed schema " + s.rejected_before_queue.failed_schema + " · blocked by policy " + s.rejected_before_queue.blocked_by_policy + " · collector events " + s.collector_events],
       ["In the outbox now", Object.values(o).reduce((a, b) => a + b, 0), pairs(o)],
+      ["Input streams", (s.inputs.pulling || []).length, (s.inputs.pulling || []).map((p) => p.kind + " " + p.target + " · " + p.state + " · " + p.lines_received + " lines" + (p.last_error ? " · " + p.last_error : "")).join(" | ") || "none pulled (data arrives by POST /ingest" + (Object.keys(s.inputs.listening || {}).length ? " and " + pairs(s.inputs.listening) : "") + ")"],
     ];
     const checks = s.checks.map((c) => h("li", { class: c.ok ? "good" : "bad", text: (c.ok ? "✔ " : "✘ ") + c.name + ": " + c.left + " vs " + c.right }));
     $("#stages-body").replaceChildren(

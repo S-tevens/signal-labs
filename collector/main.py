@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
 
@@ -14,6 +15,8 @@ from .config import COLLECTOR_VERSION, DEV_COLLECTOR_KEY, Config
 from .enroll import EnrollmentError, ensure_enrolled
 from .outbox import LocalStore
 from .pipeline import Pipeline
+from .push import PushGuard, otlp_to_lines, read_body
+from .pull import expand
 from .redact import find_spans
 from .sender import Sender
 
@@ -112,24 +115,45 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
     def healthz():
         return {"status": "ok", "collector_id": cfg.collector_id, "version": COLLECTOR_VERSION}
 
-    @app.post("/ingest")
-    async def ingest(request: Request):
-        # Read the body in pieces and stop at the limit, so one huge request cannot exhaust memory.
-        declared = request.headers.get("content-length")
-        if declared and declared.isdigit() and int(declared) > cfg.max_ingest_bytes:
-            raise HTTPException(413, f"request body over the {cfg.max_ingest_bytes} byte limit")
-        chunks, total = [], 0
-        async for chunk in request.stream():
-            total += len(chunk)
-            if total > cfg.max_ingest_bytes:
-                raise HTTPException(413, f"request body over the {cfg.max_ingest_bytes} byte limit")
-            chunks.append(chunk)
-        text = b"".join(chunks).decode("utf-8", errors="replace")
-        results = [r for r in pipeline.process_text(text) if r["status"] != "csv_header"]
+    guard = PushGuard(cfg.ingest_token, cfg.ingest_allow)
+    app.state.guard = guard
+
+    def take(text: str) -> dict:
+        results = [r for r in pipeline.process_text(expand(text)) if r["status"] != "csv_header"]
+        pipeline.counters["adapter:push"] += len(results)
         summary: dict[str, int] = {}
         for r in results:
             summary[r["status"]] = summary.get(r["status"], 0) + 1
         return {"received": len(results), "summary": summary}
+
+    @app.post("/ingest")
+    async def ingest(request: Request):
+        """Lines or JSON in any supported format (an array or NDJSON body is fine; gzip is accepted)."""
+        guard.check(request)
+        return take((await read_body(request, cfg.max_ingest_bytes)).decode("utf-8", errors="replace"))
+
+    @app.post("/write")
+    @app.post("/api/v2/write")
+    async def influx_write(request: Request):
+        """InfluxDB line protocol, so Telegraf's influxdb output can point straight at this collector."""
+        guard.check(request)
+        take((await read_body(request, cfg.max_ingest_bytes)).decode("utf-8", errors="replace"))
+        return Response(status_code=204)
+
+    @app.post("/v1/metrics")
+    async def otlp_metrics(request: Request):
+        """OpenTelemetry metrics as OTLP/HTTP JSON (an OpenTelemetry Collector's otlphttp exporter with encoding: json)."""
+        guard.check(request)
+        if "protobuf" in request.headers.get("content-type", "").lower():
+            raise HTTPException(415, "OTLP protobuf is not supported; send OTLP/HTTP JSON (Content-Type: application/json)")
+        try:
+            doc = json.loads((await read_body(request, cfg.max_ingest_bytes)).decode("utf-8", errors="replace"))
+        except ValueError:
+            raise HTTPException(400, "the body is not valid JSON") from None
+        lines = otlp_to_lines(doc)
+        if lines:
+            take("\n".join(lines))
+        return {"partialSuccess": {}}
 
     @app.get("/local/policy")
     def local_policy():
@@ -143,7 +167,14 @@ def create_app(cfg: Config | None = None, run_sender: bool = True) -> FastAPI:
     @app.get("/local/stages")
     def local_stages():
         """Each pipeline stage's count since start, plus what the outbox holds now (it survives restarts)."""
-        return {**pipeline.stages(), "outbox_now": store.counts(), "since_start": True}
+        adapters = getattr(app.state, "adapters", None)
+        return {**pipeline.stages(), "outbox_now": store.counts(), "since_start": True, "inputs": adapters.status() if adapters else {}}
+
+    @app.get("/local/stream")
+    def local_stream():
+        """Where data comes in from and the state of any stream the collector pulls (connection, lines, last error)."""
+        adapters = getattr(app.state, "adapters", None)
+        return {"post_ingest": True, **(adapters.status() if adapters else {"listening": {}, "following": [], "pulling": []})}
 
     @app.get("/local/timing")
     def local_timing():
