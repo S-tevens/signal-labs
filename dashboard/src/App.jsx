@@ -14,7 +14,6 @@ import {
   Database,
   Download,
   FileJson,
-  Globe2,
   GitBranch,
   Layers3,
   ListFilter,
@@ -1151,22 +1150,6 @@ function Dashboard() {
             </div>
             <div className="heading-actions">
               <a className="review-cta" href="#/incidents">Review incidents <span>{incidents.filter((i) => region === "all" || i.region === region).length}</span></a>
-              {page !== "egress" && page !== "proof" && (
-                <label className="select-wrap region-select">
-                  <Globe2 size={15} />
-                  <select
-                    value={region}
-                    aria-label="Region"
-                    disabled={mode === "live"}
-                    onChange={(e) => setRegion(e.target.value)}
-                  >
-                    <option value="in">India · IN</option>
-                    <option value="eu">Europe · EU</option>
-                    <option value="all">All regions · demo</option>
-                  </select>
-                  <ChevronDown size={13} />
-                </label>
-              )}
               {page === "fleet" && (
                 <label className="select-wrap">
                   <Clock3 size={15} />
