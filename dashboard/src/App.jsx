@@ -38,6 +38,7 @@ import {
 import { LIVE, useLiveData } from "./api.js";
 import Analytics from "./Analytics.jsx";
 import AIOpsLab from "./AIOpsLab.jsx";
+import DemoReadiness from "./DemoReadiness.jsx";
 import DataFlow from "./DataFlow.jsx";
 import UsersAdmin from "./Users.jsx";
 import { UserMenu } from "./Auth.jsx";
@@ -53,6 +54,7 @@ const pages = {
     "",
   ],
   flow: ["Data flow", "Trace the journey from local telemetry to operational insights."],
+  readiness: ["Demo readiness", "Review live evidence and prepare the judging demonstration."],
   lab: ["AIOps lab", "Explore projections and hypothetical health states."],
   analytics: ["Analytics overview", "Understand your collectors, signals, and incidents at a glance."],
   incidents: [
@@ -79,6 +81,7 @@ const nav = [
   { id: "flow", label: "Data flow", icon: GitBranch },
   { id: "incidents", label: "Incidents", icon: Activity },
   { id: "proof", label: "Performance proof", icon: ShieldCheck },
+  { id: "readiness", label: "Demo readiness", icon: CheckCheck },
   { id: "received", label: "Received payload", icon: FileJson },
   { id: "objects", label: "Object explorer", icon: Database },
   { id: "history", label: "Health history", icon: Clock3 },
@@ -86,7 +89,7 @@ const nav = [
   { id: "users", label: "Users", icon: ShieldCheck, adminOnly: true },
 ];
 const NAV_GROUPS = [
-  { label: "Main menu", ids: ["fleet", "analytics", "lab", "flow", "incidents", "proof"] },
+  { label: "Main menu", ids: ["fleet", "analytics", "lab", "flow", "incidents", "proof", "readiness"] },
   { label: "Investigate", ids: ["received", "objects", "history", "egress"] },
   { label: "Administration", ids: ["users"] },
 ];
@@ -1218,6 +1221,7 @@ function Dashboard() {
             />
           )}
           {page === "proof" && <Proof />}
+          {page === "readiness" && <DemoReadiness mode={mode} status={status} proof={proof} updatedAt={updatedAt}/>}
           {page === "received" && <ReceivedPayload />}
           {page === "objects" && <ObjectExplorer />}
           {page === "history" && <HealthHistory />}

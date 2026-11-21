@@ -50,6 +50,7 @@ export async function logout() {
 }
 
 const POLL_MS = 3000;
+const PUSH_COALESCE_MS = 1000;
 const WINDOW_MS = 30 * 60 * 1000; // /v1/metrics returns oldest-first and is capped, so bound the window
 const METRICS = { cpu_pct: "cpu", mem_pct: "memory", latency_ms: "latency", packet_loss_pct: "loss" };
 
@@ -253,7 +254,7 @@ export function useLiveData() {
   useEffect(() => {
     if (!LIVE) return undefined;
     const ctrl = new AbortController();
-    let reconnectTimer;
+    let reconnectTimer, pushTimer;
     let inFlight = false, pending = false;
     const refresh = async () => {
       if (ctrl.signal.aborted) return;
@@ -263,9 +264,13 @@ export function useLiveData() {
         do { pending = false; await load(ctrl.signal); } while (pending && !ctrl.signal.aborted);
       } finally { inFlight = false; }
     };
+    const schedulePushRefresh = () => {
+      if (pushTimer || ctrl.signal.aborted) return;
+      pushTimer = setTimeout(() => { pushTimer = null; refresh(); }, PUSH_COALESCE_MS);
+    };
     const connect = async () => {
       try {
-        const res = await fetch(`${BASE}/v1/stream`, { headers: { Authorization: `Bearer ${TOKEN}` }, signal: ctrl.signal });
+        const res = await fetch(`${BASE}/v1/stream?mode=changes`, { headers: { Authorization: `Bearer ${currentToken()}` }, signal: ctrl.signal });
         if (!res.ok || !res.body) throw new Error(`Stream returned HTTP ${res.status}`);
         const reader = res.body.getReader(), decoder = new TextDecoder();
         let pending = '';
@@ -276,7 +281,7 @@ export function useLiveData() {
           let end;
           while ((end = pending.indexOf('\n\n')) >= 0) {
             const event = pending.slice(0, end); pending = pending.slice(end + 2);
-            if (event.includes('event: snapshot')) refresh();
+            if (event.includes('event: snapshot')) schedulePushRefresh();
           }
         }
       } catch (e) {
@@ -287,7 +292,7 @@ export function useLiveData() {
     refresh(); connect();
     // A bounded fallback keeps proof data current while SSE reconnects.
     const timer = setInterval(refresh, POLL_MS * 3);
-    return () => { ctrl.abort(); clearInterval(timer); clearTimeout(reconnectTimer); };
+    return () => { ctrl.abort(); clearInterval(timer); clearTimeout(reconnectTimer); clearTimeout(pushTimer); };
   }, [load]);
 
   return { ...state, refresh: () => load() };

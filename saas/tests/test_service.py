@@ -306,3 +306,8 @@ def test_aiops_lab_auth_isolation_and_read_only_simulation(client):
     assert simulated['state']=='Poor' and simulated['simulation_only'] is True
     assert get(client,'/v1/incidents').json()==before
     assert get(client,'/v1/what-if?name=cpu_pct&value=101').status_code==422
+
+
+def test_stream_mode_rejects_unknown_values_before_opening(client):
+    assert get(client,'/v1/stream?mode=unknown').status_code == 422
+    assert client.get('/v1/stream?mode=changes').status_code == 401

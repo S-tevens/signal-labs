@@ -1,0 +1,17 @@
+import React, {useState} from 'react';
+
+const CHECKS=[
+  ['stream','Organizer stream','Confirm the shared organizer stream is connected and producing the expected source and units.'],
+  ['egress','Real local egress proof','Hold a payload in the collector-local panel; show the source record and the approved payload before release.'],
+  ['trace','Source to recommendation','Follow the same payload ID through the SaaS to an incident, its signals and a recommended investigation.'],
+  ['scenario','Injected scenarios','Record expected, missed and extra signals plus false alerts for the stated observation window.'],
+  ['delivery','Outage and recovery','Interrupt delivery, restore it and compare created/sent and received IDs independently for loss and duplicates.'],
+  ['story','Presentation and Q&A','Explain the evidence, privacy boundary, noise reduction and limitations; simulated actions do not execute changes.'],
+];
+const show = v => v == null || !Number.isFinite(Number(v)) ? 'Not measured' : `${Number(v).toFixed(2)} s`;
+export default function DemoReadiness({mode,status,proof,updatedAt}) {
+  const [checked,setChecked]=useState({});
+  const metrics=[['Dashboard p95',proof?.p95_dashboard_latency_s,'≤ 10 s',`${proof?.dashboard_samples ?? 0} client acknowledgements`],['Slowest alert',proof?.max_alert_delay_s,'≤ 15 s','Recent alert measurements'],['Offline detection',proof?.offline_detection_s,'≤ 60 s','Recent recorded heartbeat expiry']];
+  const valid=mode==='live' && status==='ok' && proof;
+  return <div className="ready-page"><div className="ready-intro"><span>JUDGING WORKSPACE</span><h2>Demo readiness</h2><p>Use live evidence and confirm each step during the rehearsal.</p></div>{!valid && <div className="platform-message">{mode!=='live' ? 'Connect the SaaS to see live measurements.' : status==='error' ? 'Live data is unavailable; previous values may be stale.' : 'Waiting for live measurements.'}</div>}<section className="panel ready-card"><div className="ready-heading"><div><h2>Recent platform measurements</h2><p>Current tenant · {proof?.window_s ? `${proof.window_s}s window` : 'window unavailable'} · updated {updatedAt ? new Date(updatedAt).toLocaleTimeString() : '—'}</p></div><a href="#/proof">Open performance proof</a></div><div className="ready-metrics">{metrics.map(([name,value,target,note])=><div key={name}><span>{name}</span><strong>{valid ? show(value) : 'Unavailable'}</strong><small>Target {target} · {note}</small></div>)}</div><p className="ready-note">These are platform observations, not a verdict for the organizer stream. Client acknowledgements are not physical screen measurements. The collector’s ID reconciliation is required to prove delivery.</p></section><section className="panel ready-card"><div className="ready-heading"><div><h2>Live demonstration checklist</h2><p>Manual rehearsal notes for this browser session; checkmarks are not proof.</p></div><span>{Object.values(checked).filter(Boolean).length} / {CHECKS.length} checked</span></div><div className="ready-checks">{CHECKS.map(([id,title,description])=><label key={id}><input type="checkbox" checked={!!checked[id]} onChange={e=>setChecked(c=>({...c,[id]:e.target.checked}))}/><span><strong>{title}</strong><small>{description}</small></span></label>)}</div></section><div className="ready-foot"><a href="#/incidents">Inspect an incident</a><a href="#/received">Find a received payload</a></div></div>;
+}

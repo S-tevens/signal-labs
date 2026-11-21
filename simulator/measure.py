@@ -11,7 +11,7 @@ Needs the stack from scripts/run-local.ps1 (use scripts/measure.ps1, which sets 
 Every test uses LIVE timestamps (never backdated) on a unique host, so it cannot disturb or be confused with the
 other traffic, and every result is PASS or FAIL against its target with the raw timestamps saved as evidence.
 
-How the dashboard is measured. The platform pushes a server-sent "snapshot" about every 2 s; the real dashboard reacts
+How the dashboard is measured. The platform pushes a server-sent change notification when data commits; the real dashboard reacts
 by fetching the fleet, incidents, proof and four metric series, then renders. This harness does the same fetches when
 a snapshot arrives and records when they complete ("dashboard path"). It also polls the API twice a second
 ("API"), the earliest moment the data could be shown (accurate to about half a second).
@@ -213,7 +213,7 @@ class Observer:
         """The fetches the real dashboard makes when a snapshot arrives (see dashboard/src/api.js)."""
         started = time.time()
         since = iso_ms(time.time() - 30 * 60)
-        paths = ["/v1/fleet", "/v1/incidents", "/v1/proof?window_s=300"] + [
+        paths = ["/v1/fleet", "/v1/incidents", "/v1/proof?window_s=300", "/v1/session"] + [
             f"/v1/metrics?name={n}&from={since}&limit=10000" for n in ("cpu_pct", "mem_pct", "latency_ms", "packet_loss_pct")
         ]
         try:
@@ -223,7 +223,7 @@ class Observer:
             return
         done = time.time()  # the page renders right after these complete
         fleet, incidents = results[0], results[1]
-        metrics = [m for r in results[3:] if isinstance(r, list) for m in r]
+        metrics = [m for r in results[4:] if isinstance(r, list) for m in r]
         if isinstance(fleet, list) and isinstance(incidents, list):
             self._record(metrics, incidents, fleet, done, api=False)
             with self.lock:
@@ -232,7 +232,7 @@ class Observer:
     def _sse_loop(self):
         while not self.stop_event.is_set():
             try:
-                req = request.Request(f"{sc.SAAS}/v1/stream", headers={"Authorization": f"Bearer {sc.DASH}"})
+                req = request.Request(f"{sc.SAAS}/v1/stream?mode=changes", headers={"Authorization": f"Bearer {sc.DASH}"})
                 with request.urlopen(req, timeout=8, context=sc._ctx(sc.SAAS)) as resp:
                     saw_event = False
                     for raw in resp:
