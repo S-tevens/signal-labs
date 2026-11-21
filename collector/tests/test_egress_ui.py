@@ -132,3 +132,13 @@ def test_page_code_cannot_inject_html_from_log_text():
     assert not re.search(r"\son[a-z]+\s*=", html), "no inline event handlers"
     assert " style=" not in html and "<style" not in html, "no inline styles"
     assert "javascript:" not in html
+
+
+def test_lineage_exposes_canonical_payload_matching_queued_digest():
+    import hashlib
+    from collector.outbox import canonical
+    client, pid = with_secret(make())
+    data = client.get(f"/local/lineage/{pid}").json()
+    canonical_bytes = data['canonical_payload_utf8'].encode('utf-8')
+    assert canonical_bytes == canonical(data['payload'])
+    assert hashlib.sha256(canonical_bytes).hexdigest() == data['digest']

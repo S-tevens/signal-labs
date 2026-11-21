@@ -247,12 +247,12 @@ function renderDetail(d) {
   });
   const right = h("section", { class: "panel sent" },
     h("h2", { text: "Left the environment" }),
-    h("p", { class: "sub" }, "The exact payload queued to the SaaS · status ", h("strong", { text: d.status }), " · " + d.attempts + " attempt(s)"),
+    h("p", { class: "sub" }, "Queued payload fields · status ", h("strong", { text: d.status }), " · " + d.attempts + " attempt(s)"),
     openReceived,
     h("table", { class: "fields" }, h("tbody", {}, ...rows)),
     h("p", { class: "sub", text: d.status === "sent" ? "Sent at " + clock(d.sent_at) : d.status === "pending" ? "Not sent yet. It leaves only after release (or when the link is back)." : "Closed at " + clock(d.sent_at) }),
-    h("p", { class: "sub" }, "SHA-256 of the exact bytes: ", h("code", { class: "mono", text: d.digest })),
-    h("details", {}, h("summary", { text: "Raw JSON, byte for byte" }), h("pre", { class: "json", text: JSON.stringify(d.payload, null, 2) })),
+    h("p", { class: "sub" }, "SHA-256 of canonical payload bytes: ", h("code", { class: "mono", text: d.digest })),
+    h("details", {}, h("summary", { text: "Canonical queued payload bytes" }), h("p", { class: "sub", text: "This is the canonical UTF-8 form of this payload. The HTTP request wraps one or more payloads in an array; the digest does not cover that full request." }), h("pre", { class: "json", text: d.canonical_payload_utf8 })),
   );
 
   // Leak check table.
