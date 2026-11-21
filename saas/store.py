@@ -36,9 +36,13 @@ class Store:
                 conn.execute("SET LOCAL search_path TO signal, pg_catalog")
                 conn.execute("SELECT set_config('app.tenant_id', %s, true)",(tenant,))
                 # Serialize per-tenant processing across replicas, not across tenants. Read-only lookups (sign-in, session
-                # checks) pass lock=False so they never queue behind ingest.
-                if lock: conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',(tenant,))
-                yield DB(conn)
+                # checks) pass lock=False so they never queue behind ingest. Read routes that may also run refresh() pass
+                # lock='try': they never wait, and db.locked says whether they got the lock; refresh() (which writes) runs only
+                # when it is True. If someone else holds it (e.g. ingest) that request refreshes anyway, so skipping is safe.
+                db=DB(conn); db.locked=False
+                if lock=='try': db.locked=conn.execute('SELECT pg_try_advisory_xact_lock(hashtextextended(%s,0))',(tenant,)).fetchone()['pg_try_advisory_xact_lock']
+                elif lock: conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',(tenant,)); db.locked=True
+                yield db
 def count(db,name,n=1): db.execute('INSERT INTO counters(name,value) VALUES(?,?) ON CONFLICT(tenant_id,name) DO UPDATE SET value=counters.value+excluded.value',(name,n))
 def audit(db,action,ref,detail): db.execute('INSERT INTO audit(action,reference,ts,detail) VALUES(?,?,?,?)',(action,ref,utc(),dump(detail)))
 def state(db,collector,new,reason,now):

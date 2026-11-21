@@ -7,6 +7,7 @@ Everything runs locally on Windows PowerShell with dev credentials. No Docker.
 | `run-local.ps1` | Starts Postgres (port 5433), runs the migration, then two SaaS replicas, the collector, the simulator and the dashboard. Flags: `-Tls`, `-Profile default|realtime`, `-NoSimulator`, `-NoHostTelemetry`, `-NoProxy`, `-NoDashboard`, `-Restart`, `-Status` |
 | `push-info.ps1` | Prints the addresses and token to hand the organizers so they can push their stream (start the collector with `run-local.ps1 -AcceptPush` first). See [../docs/p3/push-interface.md](../docs/p3/push-interface.md) |
 | `stream-check.ps1` | Dry-runs a sample of the organizers' stream through the collector's parsers and mapping and tells you what to map (nothing is sent). See [../docs/p3/organizer-stream.md](../docs/p3/organizer-stream.md) |
+| `reset-demo.ps1` | Starts the demo from a clean slate (fresh database and collector store, development users kept): no leftover test collectors, everything live. `-AcceptPush`, `-NoSimulator` pass through |
 | `recover.ps1` | Checks the whole stack and fixes a link left down or a hold left on; `-Restart` restarts it. See [../docs/p4/demo-runbook.md](../docs/p4/demo-runbook.md) |
 | `bundle-evidence.ps1` | Zips the evidence, guides, settings and the commit into `data\evidence-bundle-<time>.zip`, refusing if anything looks like a credential |
 | `scenario-check.ps1` | A normal baseline and seven injected scenarios in parallel, with expected versus actual, missed, extra and false alerts counted, and the window and denominator stated (about 2.5 minutes) |

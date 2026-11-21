@@ -154,8 +154,9 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
     @app.get('/v1/fleet')
     def fleet(request:Request):
         who=need(request,'read')
-        with store.connect(who.tenant) as db:
-            refresh(db,config); return [{**{k:v for k,v in r.items() if k!="tenant_id"},'collector_id':r['id'],'last_seen_utc':utc(r['last_seen']),'resources':json.loads(r['resources']),'online':time.time()-r['last_seen']<config['offline_after_s']} for r in db.execute('SELECT * FROM fleet ORDER BY id')]
+        with store.connect(who.tenant,lock='try') as db:  # reads never queue behind ingest; only a lock holder may refresh (it writes)
+            if db.locked: refresh(db,config)
+            return [{**{k:v for k,v in r.items() if k!="tenant_id"},'collector_id':r['id'],'last_seen_utc':utc(r['last_seen']),'resources':json.loads(r['resources']),'online':time.time()-r['last_seen']<config['offline_after_s']} for r in db.execute('SELECT * FROM fleet ORDER BY id')]
     @app.get('/v1/session')
     def session(request:Request):
         who=auth.dashboard(request)
@@ -261,7 +262,7 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
     @app.get('/v1/audit')
     def audit_log(request:Request,limit:int=100):
         who=need(request,'audit.read')
-        with store.connect(who.tenant) as db:
+        with store.connect(who.tenant,lock=False) as db:
             rows=db.execute('SELECT action,reference,ts,detail FROM audit ORDER BY ts DESC LIMIT ?',(max(1,min(limit,500)),)).fetchall()
         return [{'action':r['action'],'reference':r['reference'],'ts':r['ts'],'detail':json.loads(r['detail'])} for r in rows]
     @app.get('/v1/rbac')
@@ -275,7 +276,7 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
     @app.get('/v1/system/status')
     def system_status(request:Request):
         who=need(request,'read')
-        with store.connect(who.tenant) as db:
+        with store.connect(who.tenant,lock=False) as db:
             collectors=db.execute('SELECT COUNT(*) AS n FROM fleet').fetchone()['n']
             payloads=db.execute('SELECT COUNT(*) AS n FROM payloads').fetchone()['n']
             incidents=db.execute('SELECT COUNT(*) AS n FROM incidents').fetchone()['n']
@@ -291,20 +292,20 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
                 try: val=utc(epoch(request.query_params[key]))
                 except ValueError: raise HTTPException(422,'Invalid timestamp')
                 q+=f' AND ts{op}?'; args.append(val)
-        with store.connect(who.tenant) as db: return [{**json.loads(r['data']),'received_ts_utc':utc(r['received'])} for r in db.execute(q+' ORDER BY ts,id LIMIT ?',(*args,max(1,min(limit,10000))))]
+        with store.connect(who.tenant,lock=False) as db: return [{**json.loads(r['data']),'received_ts_utc':utc(r['received'])} for r in db.execute(q+' ORDER BY ts,id LIMIT ?',(*args,max(1,min(limit,10000))))]
     @app.get('/v1/incidents')
     def incidents(request:Request):
         who=need(request,'read')
-        with store.connect(who.tenant) as db: return [json.loads(r['data']) for r in db.execute('SELECT data FROM incidents ORDER BY last_ts DESC')]
+        with store.connect(who.tenant,lock=False) as db: return [json.loads(r['data']) for r in db.execute('SELECT data FROM incidents ORDER BY last_ts DESC')]
     @app.get('/v1/health/history')
     def history(request:Request):
         who=need(request,'read')
-        with store.connect(who.tenant) as db: return [{k:v for k,v in r.items() if k!="tenant_id"} for r in db.execute('SELECT * FROM health_history ORDER BY id DESC LIMIT 1000')]
+        with store.connect(who.tenant,lock=False) as db: return [{k:v for k,v in r.items() if k!="tenant_id"} for r in db.execute('SELECT * FROM health_history ORDER BY id DESC LIMIT 1000')]
     @app.get('/v1/proof')
     def evidence(request:Request,window_s:int|None=None):
         who=need(request,'read')
         if window_s is not None and not 60<=window_s<=86400: raise HTTPException(422,'window_s must be between 60 and 86400')
-        with store.connect(who.tenant) as db:return proof(db,window_s)
+        with store.connect(who.tenant,lock=False) as db:return proof(db,window_s)
     @app.post('/v1/proof/render')
     def render(request:Request,payload_id:str):
         who=need(request,'read')
@@ -323,11 +324,11 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
     @app.get('/v1/objects/{kind}')
     def objects(request:Request,kind:str):
         who=need(request,'read')
-        with store.connect(who.tenant) as db: return list_objects(db,who,kind)
+        with store.connect(who.tenant,lock=False) as db: return list_objects(db,who,kind)
     @app.get('/v1/objects/{kind}/{ident}')
     def object_by_id(request:Request,kind:str,ident:str):
         who=need(request,'read')
-        with store.connect(who.tenant) as db: return object_detail(db,who,kind,ident)
+        with store.connect(who.tenant,lock=False) as db: return object_detail(db,who,kind,ident)
     ai_engine=Engine()
     rbac.validate_config(auth.config)
     def need(request,permission):
@@ -346,24 +347,24 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
     @app.get('/v1/incidents/{ident}/ai-summary')
     def ai_summary(request:Request,ident:str):
         who=need(request,'ai.summary')
-        with store.connect(who.tenant) as db: incident=object_detail(db,who,'incident',ident)  # 404 for another tenant's incident
+        with store.connect(who.tenant,lock=False) as db: incident=object_detail(db,who,'incident',ident)  # 404 for another tenant's incident
         return ai_engine.explain(incident['properties'])
     @app.get('/v1/lineage/incident/{ident}')
     def incident_evidence(request:Request,ident:str):
         who=need(request,'read')
-        with store.connect(who.tenant) as db: return incident_lineage(db,who,ident)
+        with store.connect(who.tenant,lock=False) as db: return incident_lineage(db,who,ident)
     @app.get('/v1/lineage/payload/{ident}')
     def payload_evidence(request:Request,ident:str):
         who=need(request,'read')
-        with store.connect(who.tenant) as db: return payload_lineage(db,who,ident)
+        with store.connect(who.tenant,lock=False) as db: return payload_lineage(db,who,ident)
     @app.get('/v1/actions')
     def actions_list(request:Request,incident_id:str|None=None):
         who=need(request,'read')
-        with store.connect(who.tenant) as db: return {'types':TYPES,'actions':list_actions(db,incident_id)}
+        with store.connect(who.tenant,lock=False) as db: return {'types':TYPES,'actions':list_actions(db,incident_id)}
     @app.get('/v1/actions/{ident}')
     def action_get(request:Request,ident:str):
         who=need(request,'read')
-        with store.connect(who.tenant) as db: return get_action(db,ident)
+        with store.connect(who.tenant,lock=False) as db: return get_action(db,ident)
     @app.post('/v1/actions/propose')
     async def action_propose(request:Request):
         who=need(request,'action.propose'); _,data=await body(request)
@@ -375,7 +376,7 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
     @app.get('/v1/noise')
     def noise(request:Request):
         who=need(request,'read')
-        with store.connect(who.tenant) as db:
+        with store.connect(who.tenant,lock=False) as db:
             rows=[json.loads(r['data']) for r in db.execute('SELECT data FROM incidents')]
             alerts=sum(r.get('alert_count',0) for r in rows); incidents_count=len(rows)
             return {'alerts':alerts,'incidents':incidents_count,'reduction_ratio':round(1-incidents_count/alerts,4) if alerts else None,'scope':'all retained incidents; correlated alerts only'}
@@ -383,8 +384,8 @@ def create_app(region=None,database_url=None,auth_config=None,thresholds=None,re
     async def stream(request:Request):
         who=need(request,'read')
         def snapshot():
-            with store.connect(who.tenant) as db:
-                refresh(db,config)
+            with store.connect(who.tenant,lock='try') as db:
+                if db.locked: refresh(db,config)
                 return {'fleet':[{k:v for k,v in r.items() if k!="tenant_id"} for r in db.execute('SELECT * FROM fleet')],'incidents':[json.loads(r['data']) for r in db.execute('SELECT data FROM incidents ORDER BY last_ts DESC LIMIT 100')],'metrics':[json.loads(r['data']) for r in db.execute('SELECT data FROM payloads WHERE metric IS NOT NULL ORDER BY ts DESC LIMIT 100')]}
         async def generate():
             while not await request.is_disconnected():
