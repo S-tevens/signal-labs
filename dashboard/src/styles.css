@@ -2884,3 +2884,11 @@ button.top-avatar { border: 0; cursor: pointer; font: inherit; }
 .signal-summary { margin: 6px 0 4px; color: #4b535b; font-size: .85rem; }
 
 .expandable { scroll-margin-top: 110px; }
+
+/* Tenant-scoped incident graph and timeline */
+.evidence-map,.incident-timeline { margin:24px 0; padding:20px; border:1px solid #e5ebf2; border-radius:14px; background:#f8fafc; }
+.evidence-map-heading { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+.evidence-map h3,.incident-timeline h3 { margin:6px 0; color:#273543; }.evidence-map-heading p,.incident-timeline>p { color:#73818f; font-size:.78rem; line-height:1.5; }
+.evidence-kicker { font-size:.64rem; font-weight:700; letter-spacing:.09em; color:#6f87a6; }.evidence-tag { white-space:nowrap; font-size:.69rem; padding:6px 9px; border:1px solid #dce5f0; border-radius:20px; color:#6d8092; }
+.evidence-map-flow { display:flex; align-items:center; gap:8px; overflow-x:auto; padding:16px 0 8px; }.evidence-map-flow>button,.evidence-map-payloads { flex:0 0 132px; min-width:0; text-align:left; display:grid; gap:8px; padding:12px; border:1px solid #dce5ef; border-radius:10px; background:white; }.evidence-map-flow>button:hover { border-color:#7fa6eb; }.evidence-map-flow small { font-size:.61rem; color:#8294a8; letter-spacing:.04em; }.evidence-map-flow strong,.evidence-map-payloads a,.evidence-map-payloads span { font-size:.72rem; color:#384e63; overflow-wrap:anywhere; }.evidence-map-payloads a { display:block; padding:5px 0; color:#356bb5; }.evidence-arrow { flex:none; color:#8da6c2; }.evidence-map-note { color:#8997a3; font-size:.71rem; line-height:1.5; margin:12px 0 0; }
+.timeline-entry { display:flex; gap:12px; border-left:1px solid #d7e2ef; padding:0 0 16px 0; margin-left:5px; }.timeline-entry>div { min-width:0; flex:1; }.timeline-dot { width:11px; height:11px; background:#5d8ce7; border:2px solid #f8fafc; border-radius:50%; margin-left:-6px; flex:none; }.timeline-dot.alert { background:#e88d5e; }.timeline-head { display:flex; justify-content:space-between; flex-wrap:wrap; gap:5px; }.timeline-head strong { font-size:.78rem; color:#354c60; }.timeline-head time { font-size:.69rem; color:#8292a1; overflow-wrap:anywhere; }.timeline-entry p { margin:4px 0; font-size:.74rem; color:#6c7c89; }.timeline-entry a { color:#356bb5; font-size:.7rem; overflow-wrap:anywhere; }
